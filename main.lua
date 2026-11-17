@@ -59,6 +59,14 @@ local CFG = {
     hitSound     = false,
 }
 
+-- 仓库地址（改了仓库记得同步改这里）
+local RAW_BASE = "https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/"
+local RAW_MIRRORS = {
+    RAW_BASE,
+    "https://cdn.jsdelivr.net/gh/robert80322-sys/rivals-hub@main/",
+    "https://raw.gitmirror.com/robert80322-sys/rivals-hub/main/",
+}
+
 local CFG_FILE = "RivalsCFG_v4.json"
 
 local function loadCfg()
@@ -265,7 +273,7 @@ title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
-title.Text = "  RIVALS v7   ·   拖动移动"
+title.Text = "  RIVALS v7.1   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -333,6 +341,7 @@ local aimBtn          -- 前向声明：面板行闭包要用
 local stat            -- 前向声明：状态栏
 local savePoint       -- 前向声明：记录点
 local myChar, applyTP, tpOnce, pickTP, goalFrom   -- 前向声明：传送函数
+local loadKicia, unloadKicia                      -- 前向声明：Kicia 整套
 
 local function refreshRows()
     for _, r in ipairs(rows) do
@@ -528,6 +537,18 @@ addButton("←  回记录点", function()
     if savePoint then applyTP(savePoint) else stat.Text = "  还没有记录点" end
 end)
 addStepper("贴身距离", function() return CFG.tpRange end, function(v) CFG.tpRange = math.clamp(v, 3, 30) end, 1)
+
+addHeader("Kicia 全套 · ragebot / 物品修改器")
+addButton("⚡ 载入 Kicia 全套（2.1MB）", function()
+    stat.Text = "  正在拉 Kicia…"
+    task.spawn(function()
+        local msg = loadKicia()
+        stat.Text = "  " .. msg
+    end)
+end)
+addButton("⏏ 卸载 Kicia 全套", function()
+    stat.Text = "  " .. unloadKicia()
+end)
 
 stat = Instance.new("TextLabel")
 stat.Size = UDim2.new(1, 0, 0, 34)
@@ -1140,6 +1161,52 @@ RunService:BindToRenderStep("RivalsThirdPerson", Enum.RenderPriority.Camera.Valu
     end
 end)
 
+--═══════════ 11.9 Kicia 全套（vendor） ═══════════
+local function pullVendor(name)
+    for _, b in ipairs(RAW_MIRRORS) do
+        local ok, res = pcall(function() return game:HttpGet(b .. name, true) end)
+        if not ok then
+            ok, res = pcall(function() return game:HttpGet(b .. name) end)
+        end
+        if ok and type(res) == "string" and #res > 1000 then
+            return res
+        end
+    end
+    return nil
+end
+
+function loadKicia()
+    if getgenv().RivalsHubKiciaLoaded and getgenv().KiciaRebuild then
+        return "已经载入了"
+    end
+    local src = pullVendor("vendor/kicia.lua")
+    if not src then return "拉取失败（网络/镜像）" end
+    local fn = loadstring(src)
+    if not fn then return "编译失败（执行器不支持）" end
+    local ok, err = pcall(fn)
+    if not ok then return "运行出错: " .. tostring(err) end
+    getgenv().RivalsHubKiciaLoaded = true
+    -- 它和本脚本会抢相机/远程，先把自己这边的关掉
+    CFG.aim = false
+    CFG.silentRemote = false
+    CFG.silent = false
+    CFG.trigger = false
+    CFG.tp = false
+    saveCfg()
+    refreshRows()
+    return "已载入 · 用它的菜单调 ragebot"
+end
+
+function unloadKicia()
+    local K = getgenv().KiciaRebuild
+    if K and K.Unload then
+        pcall(K.Unload)
+        getgenv().RivalsHubKiciaLoaded = false
+        return "已卸载"
+    end
+    return "它没在跑"
+end
+
 --═══════════ 12. 收尾 ═══════════
 Players.PlayerRemoving:Connect(drop)
 LP.CharacterAdded:Connect(function()
@@ -1159,4 +1226,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v7] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v7.1] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")

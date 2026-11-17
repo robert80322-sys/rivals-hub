@@ -3,18 +3,19 @@
 Roblox **Rivals** 的客户端脚本，面向**手机执行器**（Delta / Codex / Fluxus / Hydrogen）。
 单文件、无外部依赖、不需要 key。
 
-## 一行加载
+## 三个入口，挑一个
 
-把 `loader.lua` 里的 `YOUR_NAME` 改成你的 GitHub 用户名并推送后：
-
-```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/你的名字/rivals-hub/main/loader.lua"))()
-```
-
-不想走镜像就直连正文：
+| 入口 | 内容 | 适合 |
+|---|---|---|
+| `loader.lua` | 多镜像兜底 → 加载 `main.lua` | 日常（GitHub 直连抽风时自动换源） |
+| `main.lua` | 手枪版本体，一个面板全搞定 | 只想轻量用 |
+| `all.lua` | 先拉 Kicia 全套（含 ragebot）再拉本 hub | 想要完整功能 |
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/你的名字/rivals-hub/main/main.lua"))()
+-- 日常
+loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/loader.lua"))()
+-- 全套
+loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/all.lua"))()
 ```
 
 进游戏后左上角出现圆形 **R**，点开是面板；右侧有红色 **AIM** 和青色 **TP** 两个触屏键。
@@ -30,6 +31,20 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/你的名字/rivals-h
 | 视角 | 第三人称、相机 FOV 覆盖、击中音效 |
 | 移动 | 加速、超级跳 |
 | 传送 | 贴人 TP（最近/随机、站背后/头顶、贴上就开火）、立即贴一次、记录点 / 回记录点、自动重生 |
+
+## Kicia 全套（ragebot 在这）
+
+`vendor/kicia.lua` 是 Kicia Rebuild / LxYHook v3 的完整重编译版（2.1 MB，7.3 万行），
+包含 ragebot（KH / UE / Careful 三种风格）、物品修改器（后坐力、扩散、射速、蓄力）、
+自动排队 / 投票 / 装备、Hacker 检测、玩家信息伪造等全套功能。
+
+两种用它的方式：
+
+1. **一键**：面板最底下 `⚡ 载入 Kicia 全套`，点一下就从本仓库拉下来跑，再点 `⏏ 卸载` 收掉。
+   hub 会自动关掉自己的自瞄 / 静默 / 贴人 —— 两套一起开会抢相机。
+2. **走 `all.lua`**：开机就是两套都装好。
+
+它是第三方重编译版本，更新靠上游；本仓库只是存放 + 一键加载，没改过它。
 
 ## 从 Kicia / LxYHook 里扒出来的东西
 
@@ -57,6 +72,8 @@ ReplicatedStorage.Modules.EnumLibrary    : ToEnum
 - `静默·官方接口` 依赖 `Modules.Utility` 的 `EncodeCameraRotation` 存在；游戏更新后如果改名，状态栏会显示「原生 未接」，此时退回 `静默·Hook`。
 - 第三人称是把相机往后推，和游戏自带的第一人称动画会打架，打枪手感会飘，建议只在赶路/看人时开。
 - 贴人 TP 每 0.15 秒 `PivotTo` 一次，服务端可能把你拉回，尤其是隔着半张地图跳的时候。
+- Kicia 全套和本 hub **不要同时开自瞄**：它 hook 的是同一批远程和相机，会互相覆盖。
+- `vendor/kicia.lua` 2.1 MB，手机执行器拉取要十几秒，第一次载入会卡一下，正常。
 
 ## 免责
 
