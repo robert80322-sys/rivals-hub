@@ -257,7 +257,8 @@ local _vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) o
 local _panelH = math.clamp(math.floor(_vp.Y * 0.62), 300, 460)
 local box = Instance.new("Frame")
 box.Size = UDim2.fromOffset(228, _panelH)
-box.Position = UDim2.fromOffset(12, 66)
+box.AnchorPoint = Vector2.new(0.5, 0)
+box.Position = UDim2.new(0.5, 0, 0.10, 66)
 box.BackgroundColor3 = Color3.fromRGB(13, 14, 20)
 box.BackgroundTransparency = 0.1
 box.BorderSizePixel = 0
@@ -275,7 +276,7 @@ title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
-title.Text = "  RIVALS v7.2   ·   拖动移动"
+title.Text = "  RIVALS v7.3   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -327,7 +328,8 @@ UIS.InputChanged:Connect(function(i)
     if dragging and dragStart
     and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
         local d = i.Position - dragStart
-        box.Position = UDim2.fromOffset(panelStart.X.Offset + d.X, panelStart.Y.Offset + d.Y)
+        box.Position = UDim2.new(panelStart.X.Scale, panelStart.X.Offset + d.X,
+                                 panelStart.Y.Scale, panelStart.Y.Offset + d.Y)
     end
 end)
 UIS.InputEnded:Connect(function(i)
@@ -567,8 +569,9 @@ stat.Parent = panel
 
 -- 开面板按钮
 local fab = Instance.new("TextButton")
-fab.Size = UDim2.fromOffset(52, 52)
-fab.Position = UDim2.fromOffset(12, 12)
+fab.Size = UDim2.fromOffset(56, 56)
+fab.AnchorPoint = Vector2.new(0.5, 0)
+fab.Position = UDim2.new(0.5, 0, 0.10, -2)
 fab.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 fab.BackgroundTransparency = 0.1
 fab.BorderSizePixel = 0
@@ -582,25 +585,6 @@ do
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = fab
     local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(80, 255, 175); s.Transparency = 0.4; s.Parent = fab
 end
-
-local fabDrag, fabStart, fabPos = false, nil, nil
-fab.InputBegan:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.Touch
-    or i.UserInputType == Enum.UserInputType.MouseButton1 then
-        fabDrag = true
-        fabStart = i.Position
-        fabPos = fab.Position
-    end
-end)
-UIS.InputChanged:Connect(function(i)
-    if fabDrag and fabStart
-    and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
-        local d = i.Position - fabStart
-        if d.Magnitude > 6 then
-            fab.Position = UDim2.fromOffset(fabPos.X.Offset + d.X, fabPos.Y.Offset + d.Y)
-        end
-    end
-end)
 
 fab.MouseButton1Click:Connect(function()
     box.Visible = not box.Visible
@@ -1228,4 +1212,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v7.2] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v7.3] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
