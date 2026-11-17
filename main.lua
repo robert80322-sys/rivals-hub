@@ -253,8 +253,10 @@ local function drop(p)
 end
 
 --═══════════ 6. 面板（可滚动） ═══════════
+local _vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(720, 1280)
+local _panelH = math.clamp(math.floor(_vp.Y * 0.62), 300, 460)
 local box = Instance.new("Frame")
-box.Size = UDim2.fromOffset(214, 352)
+box.Size = UDim2.fromOffset(228, _panelH)
 box.Position = UDim2.fromOffset(12, 66)
 box.BackgroundColor3 = Color3.fromRGB(13, 14, 20)
 box.BackgroundTransparency = 0.1
@@ -268,12 +270,12 @@ do
 end
 
 local title = Instance.new("TextButton")
-title.Size = UDim2.new(1, 0, 0, 26)
+title.Size = UDim2.new(1, 0, 0, 30)
 title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
-title.TextSize = 12
-title.Text = "  RIVALS v7.1   ·   拖动移动"
+title.TextSize = 13
+title.Text = "  RIVALS v7.2   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -284,8 +286,8 @@ do
 end
 
 local panel = Instance.new("ScrollingFrame")
-panel.Size = UDim2.new(1, 0, 1, -26)
-panel.Position = UDim2.fromOffset(0, 26)
+panel.Size = UDim2.new(1, 0, 1, -30)
+panel.Position = UDim2.fromOffset(0, 30)
 panel.BackgroundTransparency = 1
 panel.BorderSizePixel = 0
 panel.ScrollBarThickness = 3
@@ -355,10 +357,10 @@ end
 local function addHeader(text)
     order = order + 1
     local h = Instance.new("TextLabel")
-    h.Size = UDim2.new(1, 0, 0, 20)
+    h.Size = UDim2.new(1, 0, 0, 22)
     h.BackgroundTransparency = 1
     h.Font = Enum.Font.GothamBold
-    h.TextSize = 11
+    h.TextSize = 12
     h.Text = "  " .. text
     h.TextXAlignment = Enum.TextXAlignment.Left
     h.TextColor3 = Color3.fromRGB(110, 200, 255)
@@ -370,11 +372,11 @@ end
 local function addRow(label, getter, setter)
     order = order + 1
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, 0, 0, 27)
+    b.Size = UDim2.new(1, 0, 0, 33)
     b.BackgroundColor3 = Color3.fromRGB(27, 29, 38)
     b.BorderSizePixel = 0
     b.Font = Enum.Font.Gotham
-    b.TextSize = 13
+    b.TextSize = 14
     b.Text = "  " .. label
     b.TextXAlignment = Enum.TextXAlignment.Left
     b.TextColor3 = Color3.fromRGB(232, 232, 238)
@@ -406,11 +408,11 @@ end
 local function addButton(label, action)
     order = order + 1
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, 0, 0, 27)
+    b.Size = UDim2.new(1, 0, 0, 33)
     b.BackgroundColor3 = Color3.fromRGB(30, 40, 52)
     b.BorderSizePixel = 0
     b.Font = Enum.Font.Gotham
-    b.TextSize = 13
+    b.TextSize = 14
     b.Text = "  " .. label
     b.TextXAlignment = Enum.TextXAlignment.Left
     b.TextColor3 = Color3.fromRGB(150, 230, 255)
@@ -428,7 +430,7 @@ end
 local function addStepper(label, getter, setter, step)
     order = order + 1
     local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, 0, 0, 27)
+    holder.Size = UDim2.new(1, 0, 0, 33)
     holder.BackgroundColor3 = Color3.fromRGB(27, 29, 38)
     holder.BorderSizePixel = 0
     holder.LayoutOrder = order
@@ -440,7 +442,7 @@ local function addStepper(label, getter, setter, step)
     lbl.Size = UDim2.new(1, -110, 1, 0)
     lbl.Position = UDim2.fromOffset(8, 0)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
+    lbl.TextSize = 14
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Text = label
     lbl.TextColor3 = Color3.fromRGB(232, 232, 238)
@@ -461,11 +463,11 @@ local function addStepper(label, getter, setter, step)
         local b = Instance.new("TextButton")
         b.AnchorPoint = Vector2.new(1, 0.5)
         b.Position = UDim2.new(1, dx, 0.5, 0)
-        b.Size = UDim2.fromOffset(24, 22)
+        b.Size = UDim2.fromOffset(30, 26)
         b.BackgroundColor3 = Color3.fromRGB(48, 51, 64)
         b.BorderSizePixel = 0
         b.Font = Enum.Font.GothamBold
-        b.TextSize = 15
+        b.TextSize = 16
         b.Text = txt
         b.TextColor3 = Color3.fromRGB(238, 238, 244)
         b.Parent = holder
@@ -551,7 +553,7 @@ addButton("⏏ 卸载 Kicia 全套", function()
 end)
 
 stat = Instance.new("TextLabel")
-stat.Size = UDim2.new(1, 0, 0, 34)
+stat.Size = UDim2.new(1, 0, 0, 40)
 stat.BackgroundTransparency = 1
 stat.Font = Enum.Font.Code
 stat.TextSize = 11
@@ -565,7 +567,7 @@ stat.Parent = panel
 
 -- 开面板按钮
 local fab = Instance.new("TextButton")
-fab.Size = UDim2.fromOffset(46, 46)
+fab.Size = UDim2.fromOffset(52, 52)
 fab.Position = UDim2.fromOffset(12, 12)
 fab.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 fab.BackgroundTransparency = 0.1
@@ -646,7 +648,7 @@ end)
 
 -- TP 快捷键（右侧，AIM 上方）
 local tpBtn = Instance.new("TextButton")
-tpBtn.Size = UDim2.fromOffset(70, 70)
+tpBtn.Size = UDim2.fromOffset(76, 76)
 tpBtn.AnchorPoint = Vector2.new(1, 0.5)
 tpBtn.Position = UDim2.new(1, -30, 0.62, -108)
 tpBtn.BackgroundColor3 = Color3.fromRGB(40, 220, 255)
@@ -1226,4 +1228,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v7.1] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v7.2] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
