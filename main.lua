@@ -57,6 +57,8 @@ local CFG = {
     camFov       = false,
     fovVal       = 90,
     hitSound     = false,
+    -- 手机上 mouse1press / SendMouseButtonEvent 会召唤鼠标指针，多指时乱飘，默认关
+    mouseSim     = false,
 }
 
 -- 仓库地址（改了仓库记得同步改这里）
@@ -276,7 +278,7 @@ title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
-title.Text = "  RIVALS v7.3   ·   拖动移动"
+title.Text = "  RIVALS v7.4   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -503,6 +505,7 @@ addRow("队友过滤",        function() return CFG.teamCheck end,   function(v)
 addHeader("瞄准")
 addRow("自瞄 AIM",        function() return CFG.aim end,         function(v) CFG.aim = v; if aimBtn then aimBtn.Visible = v end end)
 addRow("自动开火",        function() return CFG.trigger end,     function(v) CFG.trigger = v end)
+addRow("鼠标模拟开火",    function() return CFG.mouseSim end,    function(v) CFG.mouseSim = v end)
 addRow("静默·官方接口",   function() return CFG.silentRemote end, function(v) CFG.silentRemote = v end)
 addRow("静默·Hook",       function() return CFG.silent end,      function(v) CFG.silent = v; installSilent() end)
 addRow("命中盒瞄准",      function() return CFG.hitboxAim end,   function(v) CFG.hitboxAim = v end)
@@ -660,11 +663,21 @@ refreshRows()
 local VIM
 pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
+local isTouch = false
+pcall(function()
+    isTouch = (UIS.TouchEnabled and not UIS.KeyboardEnabled)
+end)
+
 local firing = false
 
+-- 注意：mouse1press / VIM:SendMouseButtonEvent 在手机上会把客户端切进
+-- 鼠标输入模式，屏幕上冒出一个指针，多指操作时它跟着乱飘并把视角带跑。
+-- 所以手机上默认不碰它们（CFG.mouseSim = false），只在真鼠标/桌面端才用。
 local function setFire(on)
     if on == firing then return end
     firing = on
+    if not CFG.mouseSim then return end
+    if isTouch then return end
     local cx, cy = 0, 0
     local cam = workspace.CurrentCamera
     if cam then
@@ -1212,4 +1225,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v7.3] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v7.4] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")

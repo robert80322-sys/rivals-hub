@@ -81,6 +81,14 @@ ReplicatedStorage.Modules.EnumLibrary    : ToEnum
 面板里的开关会自动存进执行器的 `RivalsCFG_v4.json`，下次执行自动读回。
 想改默认值，直接搜 `local CFG = {` 那一段。
 
+## 多指 / 鼠标指针问题
+
+Roblox 手机端本身支持多指（左手摇杆 + 右手转视角）。如果屏幕上突然冒出一个**鼠标指针**并跟着手指乱飘，是执行器用 `mouse1press` / `VirtualInputManager:SendMouseButtonEvent` 模拟开火时，把客户端切进了鼠标输入模式。
+
+本脚本 v7.4 起默认**不在触屏设备上发任何鼠标事件**（`CFG.mouseSim = false`），代价是「自动开火 / 贴人开火」在手机上不会真的扣扳机，只做瞄准。想用就在面板里打开 `鼠标模拟开火`，指针会回来。
+
+如果关掉之后还有指针，那是执行器自带的虚拟鼠标 —— 去 Delta/Codex 的设置里找 mouse / cursor 相关开关关掉。
+
 ## 已知限制
 
 - `静默·官方接口` 依赖 `Modules.Utility` 的 `EncodeCameraRotation` 存在；游戏更新后如果改名，状态栏会显示「原生 未接」，此时退回 `静默·Hook`。
