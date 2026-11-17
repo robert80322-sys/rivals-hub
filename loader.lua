@@ -10,7 +10,7 @@
 ════════════════════════════════════════════════════════════
 ]]
 
-local GITHUB_USER = "YOUR_NAME"     -- ← 改这里
+local GITHUB_USER = "robert80322-sys"     -- ← 改这里
 local REPO        = "rivals-hub"    -- ← 仓库名
 local BRANCH      = "main"
 local FILE        = "main.lua"
