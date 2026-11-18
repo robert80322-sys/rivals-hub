@@ -29,6 +29,8 @@ local CFG = {
     maxDist   = 1200,
     bone      = true,    -- AIM 优先打头，被挡则打身体
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
+    teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
+    teamX = 26,  teamY = -228, teamSize = 84,
     tpX   = 26,  tpY   = -112, tpSize   = 84,
     aimX  = 26,  aimY  = 0,    aimSize  = 92,
     rageX = 26,  rageY = 118,  rageSize = 92,
@@ -125,6 +127,7 @@ local ALLY_IDS = {}   -- 手动排除：[UserId] = true
 
 local function isAlly(p)
     if p == LP then return true end
+    if CFG.teamFilter == false then return false end   -- 识别关了：谁都打
     if ALLY_IDS[p.UserId] then return true end
     if p.Team and LP.Team and p.Team == LP.Team then return true end
     local a, b = p:GetAttribute("Team"), LP:GetAttribute("Team")
@@ -350,6 +353,7 @@ local function makeBtn(key, text, color)
     return b
 end
 
+local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
 local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
 local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
@@ -360,6 +364,7 @@ local function applyLayout()
         btn.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
         btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
     end
+    set(btnTeam, "team")
     set(btnTp, "tp")
     set(btnAim, "aim")
     set(btnRage, "rage")
@@ -369,6 +374,20 @@ local function paint(btn, on, base)
     btn.BackgroundTransparency = on and 0.22 or 0.72
     btn.Text = on and (base .. " ●") or base
 end
+
+-- TEAM：亮 = 排掉队友；暗（ALL）= 连队友一起打
+local function paintTeam()
+    if not btnTeam then return end
+    btnTeam.BackgroundTransparency = CFG.teamFilter and 0.22 or 0.72
+    btnTeam.Text = CFG.teamFilter and "TEAM" or "ALL"
+end
+
+btnTeam.MouseButton1Click:Connect(function()
+    CFG.teamFilter = not CFG.teamFilter
+    paintTeam()
+    saveCfg()
+end)
+paintTeam()
 
 -- TP 还是按住（松开立刻停，贴人这种事要能随时断）
 btnTp.InputBegan:Connect(function(i)
@@ -550,6 +569,10 @@ local function header(text)
     h.Parent = scroll
 end
 
+header("TEAM 键（队友识别）")
+makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "大小",   "teamSize", 6, 50, 160, nextOrd())
 header("TP 键")
 makeStepper(scroll, "右边距", "tpX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "tpY", 10, -700, 700, nextOrd())
@@ -592,15 +615,17 @@ task.spawn(function()
         task.wait(0.35)
         local okTxt = RIVALS.ready and "原生接口 OK" or "原生接口 缺"
         local allies = 0
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LP and isAlly(p) then allies = allies + 1 end
+        if CFG.teamFilter then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LP and isAlly(p) then allies = allies + 1 end
+            end
         end
         stat.Text = string.format(
-            "  TP %s   AIM %s   RAGE %s   队友 %d\n  %s · %s",
+            "  TP %s   AIM %s   RAGE %s   %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
-            allies, okTxt, rageStatus)
+            CFG.teamFilter and ("队友 " .. allies) or "全打", okTxt, rageStatus)
     end
 end)
 
