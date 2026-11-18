@@ -31,6 +31,10 @@ local CFG = {
     bone      = true,    -- AIM 优先打头，被挡则打身体
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
+    silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
+    spreadOn   = false,  -- 无扩散：把武器的 spread 字段清零
+    spreadX = 12, spreadY = -84, spreadSize = 64,
+    silentX = 12, silentY = 0,   silentSize = 64,
     teamX = 26,  teamY = -228, teamSize = 84,
     tpX   = 26,  tpY   = -112, tpSize   = 84,
     aimX  = 26,  aimY  = 0,    aimSize  = 92,
@@ -351,11 +355,17 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local okP = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
 if not okP then gui.Parent = LP:WaitForChild("PlayerGui") end
 
-local function makeBtn(key, text, color)
+local function makeBtn(key, text, color, side)
+    side = side or "right"
     local b = Instance.new("TextButton")
-    b.AnchorPoint = Vector2.new(1, 0.5)
+    if side == "left" then
+        b.AnchorPoint = Vector2.new(0, 0.5)
+        b.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+    else
+        b.AnchorPoint = Vector2.new(1, 0.5)
+        b.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+    end
     b.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
-    b.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
     b.BackgroundColor3 = color
     b.BackgroundTransparency = 0.72
     b.BorderSizePixel = 0
@@ -374,17 +384,25 @@ local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
 local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
 local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
+local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
+local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
 
 local function applyLayout()
-    local function set(btn, key)
+    local function set(btn, key, side)
         if not btn then return end
         btn.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
-        btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+        if side == "left" then
+            btn.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+        else
+            btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+        end
     end
     set(btnTeam, "team")
     set(btnTp, "tp")
     set(btnAim, "aim")
     set(btnRage, "rage")
+    set(btnSpread, "spread", "left")
+    set(btnSilent, "silent", "left")
 end
 
 local function paint(btn, on, base)
@@ -398,6 +416,85 @@ local function paintTeam()
     btnTeam.BackgroundTransparency = CFG.teamFilter and 0.22 or 0.72
     btnTeam.Text = CFG.teamFilter and "TEAM" or "ALL"
 end
+
+--═══════════ 静默瞄准（视角不动，发包骗服务端） ═══════════
+local lastYawAt = 0
+local function sendYaw(pos)
+    if not (RIVALS.cam and RIVALS.util and pos) then return end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local delta = pos - cam.CFrame.Position
+    if delta.Magnitude < 0.8 then return end
+    local now = os.clock()
+    if now - lastYawAt < 0.02 then return end
+    lastYawAt = now
+    pcall(function()
+        local cf = CFrame.lookAt(cam.CFrame.Position, pos)
+        local _, yaw = cf:ToOrientation()
+        RIVALS.cam:FireServer(RIVALS.util:EncodeCameraRotation(Vector2.new(0, yaw)), nil)
+    end)
+end
+
+RunService:BindToRenderStep("RageLiteSilent", Enum.RenderPriority.Camera.Value + 2, function()
+    if not CFG.silentOn then return end
+    local p = nearestEnemy(CFG.maxDist)
+    if not p then return end
+    local _, ch = humOf(p)
+    if not ch then return end
+    local head, body = partsOf(ch)
+    local part = head or body
+    if part then sendYaw(part.Position) end
+end)
+
+--═══════════ 无扩散 ═══════════
+local spreadFields = { "Spread", "HipSpread", "AimSpread", "MinSpread", "MaxSpread", "Recoil" }
+
+local function killSpread()
+    local item = equippedItem()
+    if not item then return false end
+    local touched = false
+    pcall(function()
+        if type(item.Info) == "table" then
+            for _, f in ipairs(spreadFields) do
+                if item.Info[f] ~= nil then item.Info[f] = 0; touched = true end
+            end
+        end
+    end)
+    pcall(function()
+        if item.Set then
+            for _, f in ipairs(spreadFields) do
+                pcall(function() item:Set(f, 0) end)
+            end
+            touched = true
+        end
+    end)
+    return touched
+end
+
+task.spawn(function()
+    while task.wait(0.2) do
+        if CFG.spreadOn then killSpread() end
+    end
+end)
+
+--═══════════ 两个开关按钮 ═══════════
+btnSilent.MouseButton1Click:Connect(function()
+    CFG.silentOn = not CFG.silentOn
+    btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
+    btnSilent.Text = CFG.silentOn and "SILENT ●" or "SILENT"
+    saveCfg()
+end)
+btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
+btnSilent.Text = CFG.silentOn and "SILENT ●" or "SILENT"
+
+btnSpread.MouseButton1Click:Connect(function()
+    CFG.spreadOn = not CFG.spreadOn
+    btnSpread.BackgroundTransparency = CFG.spreadOn and 0.22 or 0.72
+    btnSpread.Text = CFG.spreadOn and "SPREAD ●" or "SPREAD"
+    saveCfg()
+end)
+btnSpread.BackgroundTransparency = CFG.spreadOn and 0.22 or 0.72
+btnSpread.Text = CFG.spreadOn and "SPREAD ●" or "SPREAD"
 
 btnTeam.MouseButton1Click:Connect(function()
     CFG.teamFilter = not CFG.teamFilter
@@ -586,6 +683,13 @@ local function header(text)
     h.Parent = scroll
 end
 
+header("SILENT / SPREAD 键")
+makeStepper(scroll, "SILENT 边距", "silentX", 6, 0, 400, nextOrd())
+makeStepper(scroll, "SILENT 垂直", "silentY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "SILENT 大小", "silentSize", 6, 40, 160, nextOrd())
+makeStepper(scroll, "SPREAD 边距", "spreadX", 6, 0, 400, nextOrd())
+makeStepper(scroll, "SPREAD 垂直", "spreadY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "SPREAD 大小", "spreadSize", 6, 40, 160, nextOrd())
 header("TEAM 键（队友识别）")
 makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
@@ -639,10 +743,12 @@ task.spawn(function()
             end
         end
         stat.Text = string.format(
-            "  TP %s   AIM %s   RAGE %s   %s\n  %s · %s",
+            "  TP %s  AIM %s  RAGE %s  SIL %s  SPL %s  %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
+            CFG.silentOn and "●" or "○",
+            CFG.spreadOn and "●" or "○",
             (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
             okTxt, tpHold and tpStatus or rageStatus)
     end
