@@ -34,6 +34,9 @@ local CFG = {
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
     allyIds    = {},     -- 手动标记为队友的 UserId
+    autoFire   = false,  -- 自动开火：准星附近有敌人就替玩家扣扳机
+    fireWindow = 70,     -- 准星多少像素内有目标才开火
+    fireX = 26, fireY = 232, fireSize = 84,
     silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
     spreadOn   = false,  -- 无扩散：把武器的 spread 字段清零
     spreadX = 12, spreadY = -84, spreadSize = 64,
@@ -500,6 +503,7 @@ local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
 local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
 local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
+local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80))
 local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
 local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
 
@@ -517,6 +521,7 @@ local function applyLayout()
     set(btnTp, "tp")
     set(btnAim, "aim")
     set(btnRage, "rage")
+    set(btnFire, "fire")
     set(btnSpread, "spread", "left")
     set(btnSilent, "silent", "left")
 end
@@ -532,6 +537,87 @@ local function paintTeam()
     btnTeam.BackgroundTransparency = CFG.teamFilter and 0.22 or 0.72
     btnTeam.Text = CFG.teamFilter and "TEAM" or "ALL"
 end
+
+--═══════════ 自动开火（准星贴人就替玩家扣扳机） ═══════════
+local fireNext = 0
+local fireStatus = "待命"
+
+local function autoFireTick()
+    if not RIVALS.ready then fireStatus = "缺游戏模块" return false end
+    local now = os.clock()
+    if now < fireNext then return false end
+
+    local cam = workspace.CurrentCamera
+    if not cam then return false end
+    local vp = cam.ViewportSize
+    local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+
+    -- 只在准星附近 CFG.fireWindow 像素内开火，不乱打
+    local best, bestD = nil, CFG.fireWindow
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and not isAlly(p) then
+            local hum, ch = humOf(p)
+            if hum then
+                local head, body = partsOf(ch)
+                local part = head or body
+                if part then
+                    local sp, on = cam:WorldToViewportPoint(part.Position)
+                    if on and sp.Z > 0 then
+                        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        if d < bestD then bestD = d; best = { p = p, part = part } end
+                    end
+                end
+            end
+        end
+    end
+    if not best then fireStatus = "准星附近没人" return false end
+
+    local item = equippedItem()
+    if not item then fireStatus = "拿不到武器" return false end
+    local objId = item.Get and item:Get("ObjectID")
+    if not objId then fireStatus = "武器没有 ObjectID" return false end
+
+    -- 按武器自己的射速来，不刷包
+    local cd = 0.12
+    local info = item.Info
+    if type(info) == "table" then
+        local raw = info.FireCooldown or info.ShootCooldown or info.AttackCooldown
+        if type(raw) == "number" and raw > 0 then cd = raw end
+    end
+    fireNext = now + math.max(cd, 0.05)
+
+    local myChar = LP.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local origin = myRoot and myRoot.Position or cam.CFrame.Position
+    local aim = CFrame.new(origin, best.part.Position)
+    local shot = {
+        [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
+        [utf8.char(1)] = RIVALS.util:EncodeCFrame(aim),
+        [utf8.char(2)] = best.part,
+        [utf8.char(3)] = RIVALS.util:EncodeCFrame(CFrame.Angles(0, math.pi / 2, 0)),
+    }
+    local ok = pcall(function()
+        RIVALS.use:FireServer(
+            objId,
+            RIVALS.enums:ToEnum("StartShooting"),
+            { [utf8.char(1)] = shot, [utf8.char(2)] = true },
+            nil
+        )
+    end)
+    fireStatus = ok and ("开火 → " .. best.p.Name) or "发包失败"
+    return ok
+end
+
+task.spawn(function()
+    while true do
+        if CFG.autoFire then
+            autoFireTick()
+            task.wait(0.03)
+        else
+            task.wait(0.12)
+        end
+    end
+end)
 
 --═══════════ 静默瞄准（视角不动，发包骗服务端） ═══════════
 local lastYawAt = 0
@@ -623,6 +709,16 @@ task.spawn(function()
 end)
 
 --═══════════ 两个开关按钮 ═══════════
+btnFire.MouseButton1Click:Connect(function()
+    CFG.autoFire = not CFG.autoFire
+    btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
+    btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
+    fireNext = 0
+    saveCfg()
+end)
+btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
+btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
+
 btnSilent.MouseButton1Click:Connect(function()
     CFG.silentOn = not CFG.silentOn
     btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
@@ -859,6 +955,11 @@ makeStepper(scroll, "SILENT 大小", "silentSize", 6, 40, 160, nextOrd())
 makeStepper(scroll, "SPREAD 边距", "spreadX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SPREAD 垂直", "spreadY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SPREAD 大小", "spreadSize", 6, 40, 160, nextOrd())
+header("FIRE 键（自动开火）")
+makeStepper(scroll, "准星范围", "fireWindow", 10, 20, 300, nextOrd())
+makeStepper(scroll, "右边距", "fireX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "垂直", "fireY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "大小", "fireSize", 6, 40, 160, nextOrd())
 header("TEAM 键（队友识别）")
 makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
@@ -914,10 +1015,11 @@ task.spawn(function()
             end
         end
         stat.Text = string.format(
-            "  TP %s AIM %s RAGE %s SIL %s SPL %s %s\n  %s · %s",
+            "  TP %s AIM %s RAGE %s FIRE %s SIL %s SPL %s %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
+            CFG.autoFire and "●" or "○",
             CFG.silentOn and "●" or "○",
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies .. " [" .. teamInfo() .. "]") or "全打")
