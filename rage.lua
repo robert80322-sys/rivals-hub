@@ -34,6 +34,8 @@ local CFG = {
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
     silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
+    reloadOn   = false,  -- 去换弹后摇：把 _reload_cooldown 压在 0
+    reloadX = 12, reloadY = -168, reloadSize = 64,
     spreadOn   = false,  -- 无扩散：把武器的 spread 字段清零
     spreadX = 12, spreadY = -84, spreadSize = 64,
     silentX = 12, silentY = 0,   silentSize = 64,
@@ -449,6 +451,7 @@ local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
 local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
 local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
+local btnReload = makeBtn("reload", "RELOAD", Color3.fromRGB(255, 140, 90), "left")
 
 local function applyLayout()
     local function set(btn, key, side)
@@ -466,6 +469,7 @@ local function applyLayout()
     set(btnRage, "rage")
     set(btnSpread, "spread", "left")
     set(btnSilent, "silent", "left")
+    set(btnReload, "reload", "left")
 end
 
 local function paint(btn, on, base)
@@ -566,7 +570,47 @@ task.spawn(function()
     end
 end)
 
+--═══════════ 换弹后摇 ═══════════
+-- 游戏换完弹会在武器上打一个 _reload_cooldown 时间戳（服务端发下来的），
+-- 客户端拿它禁射 —— 那就是"后摇"。这里每 0.1 秒把它压到 0，动画照放，但锁没了。
+local reloadState = "原值"
+
+local function clearReloadLag()
+    local item = equippedItem()
+    if not item then reloadState = "拿不到武器" return end
+    local found = false
+    pcall(function()
+        if item:GetAttribute("_reload_cooldown") ~= nil then
+            item:SetAttribute("_reload_cooldown", 0)
+            found = true
+        end
+    end)
+    pcall(function()
+        if item:GetAttribute("_shoot_cooldown_no_ammo") ~= nil then
+            item:SetAttribute("_shoot_cooldown_no_ammo", 0)
+            found = true
+        end
+    end)
+    reloadState = found and "已解除" or "没有冷却字段"
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if CFG.reloadOn then clearReloadLag() end
+    end
+end)
+
 --═══════════ 两个开关按钮 ═══════════
+btnReload.MouseButton1Click:Connect(function()
+    CFG.reloadOn = not CFG.reloadOn
+    btnReload.BackgroundTransparency = CFG.reloadOn and 0.22 or 0.72
+    btnReload.Text = CFG.reloadOn and "RELOAD ●" or "RELOAD"
+    if CFG.reloadOn then clearReloadLag() else reloadState = "原值" end
+    saveCfg()
+end)
+btnReload.BackgroundTransparency = CFG.reloadOn and 0.22 or 0.72
+btnReload.Text = CFG.reloadOn and "RELOAD ●" or "RELOAD"
+
 btnSilent.MouseButton1Click:Connect(function()
     CFG.silentOn = not CFG.silentOn
     btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
@@ -779,7 +823,10 @@ local function header(text)
     h.Parent = scroll
 end
 
-header("SILENT / SPREAD 键")
+header("RELOAD / SILENT / SPREAD 键")
+makeStepper(scroll, "RELOAD 边距", "reloadX", 6, 0, 400, nextOrd())
+makeStepper(scroll, "RELOAD 垂直", "reloadY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "RELOAD 大小", "reloadSize", 6, 40, 160, nextOrd())
 makeStepper(scroll, "SILENT 边距", "silentX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SILENT 垂直", "silentY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SILENT 大小", "silentSize", 6, 40, 160, nextOrd())
@@ -841,12 +888,13 @@ task.spawn(function()
             end
         end
         stat.Text = string.format(
-            "  TP %s  AIM %s  RAGE %s  SIL %s  SPL %s  %s\n  %s · %s",
+            "  TP %s AIM %s RAGE %s SIL %s SPL %s REL %s %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
             CFG.silentOn and "●" or "○",
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
+            (CFG.reloadOn and "●" or "○") .. "(" .. reloadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
             okTxt, tpHold and tpStatus or rageStatus)
     end
