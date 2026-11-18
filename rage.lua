@@ -271,23 +271,21 @@ local function rageFire()
     local now = os.clock()
     if now < rageNext then return false end
 
-    local p = nearestEnemy(CFG.tpMaxDist)
-    if not p then
-        if nearestEnemy(CFG.maxDist) then
-            rageStatus = string.format("目标超出 TP 距离（%d）", math.floor(CFG.tpMaxDist))
-        else
-            rageStatus = "没有目标（队友已排除）"
-        end
-        return false
-    end
+    local p = nearestEnemy(CFG.maxDist)     -- 开火不限距离，只有传送才限
+    if not p then rageStatus = "没有目标（队友已排除）" return false end
     local _, ch = humOf(p)
     if not ch then return false end
     local head, body = partsOf(ch)
     local part = head or body
     if not part then rageStatus = "目标没有命中盒" return false end
 
-    -- 先贴过去：贴了包才有效，这才是 ragebot 和"隔着地图发个假包"的区别
-    if now >= rageTPNext then
+    -- 只有距离在 tpMaxDist 以内才贴过去；超了就直接远距离打，不传送
+    local myChar0 = LP.Character
+    local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
+    local tRoot0 = ch:FindFirstChild("HumanoidRootPart")
+    local canTP = (myRoot0 ~= nil and tRoot0 ~= nil)
+        and (tRoot0.Position - myRoot0.Position).Magnitude <= CFG.tpMaxDist
+    if canTP and now >= rageTPNext then
         rageTeleport(ch)
         rageTPNext = now + 0.11
     end
@@ -318,7 +316,7 @@ local function rageFire()
         )
     end)
     if ok then
-        rageStatus = "贴脸开火 → " .. p.Name
+        rageStatus = (canTP and "贴脸开火 → " or "远距离开火 → ") .. p.Name
         return true
     end
     rageStatus = "发包失败：" .. tostring(err)
@@ -645,7 +643,7 @@ task.spawn(function()
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
-            (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · TP≤" .. math.floor(CFG.tpMaxDist),
+            (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
             okTxt, tpHold and tpStatus or rageStatus)
     end
 end)
