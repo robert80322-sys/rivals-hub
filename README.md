@@ -10,6 +10,7 @@ Roblox **Rivals** 的客户端脚本，面向**手机执行器**（Delta / Codex
 | `loader.lua` | 多镜像兜底 → 加载 `main.lua` | 日常（GitHub 直连抽风时自动换源） |
 | `main.lua` | 手枪版本体，一个面板全搞定 | 只想轻量用 |
 | `all.lua` | 先拉 Kicia 全套（含 ragebot）再拉本 hub | 想要完整功能 |
+| `rage.lua` | **独立三键版**：TP / AIM / RAGE，无面板 | 只要这三件事 |
 
 ```lua
 -- 日常
@@ -34,6 +35,30 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 | 外观 | **Skinchanger**：独立面板列出游戏皮肤，点一下本地换手持武器外观 |
 | 移动 | 加速、超级跳 |
 | 传送 | 贴人 TP（最近/随机、站背后/头顶、贴上就开火）、立即贴一次、记录点 / 回记录点、自动重生 |
+
+## rage.lua · 三个键
+
+独立文件，不依赖 main.lua，也没有面板 —— 就屏幕右侧三个键，按住生效：
+
+| 键 | 行为 |
+|---|---|
+| **TP**（青） | 每 0.12 秒 `PivotTo` 到最近敌人身边 **1 米**，按住就一直贴 |
+| **AIM**（红） | 按住暴力锁头，**360° 无死角**（不做 FOV 过滤），射线判断遮挡，头被墙挡住自动改打身体 |
+| **RAGE**（橙） | 按住按 Kicia 的 ragebot 发包：`UseItem:FireServer(ObjectID, StartShooting, {["\1"]=shot, ["\2"]=true})`，shot 里带 `EncodeCFrame` 的起止 CFrame + 目标命中盒，**不发视线检查 ⇒ 穿墙** |
+
+RAGE 的包结构是照 Kicia 反编译出来的原始布局抄的：
+
+```lua
+shot = {
+  [utf8.char(0)] = EncodeCFrame(startCF),
+  [utf8.char(1)] = EncodeCFrame(endCF),
+  [utf8.char(2)] = part,          -- 目标 HitboxHead/HitboxBody
+  [utf8.char(3)] = EncodeCFrame(CFrame.Angles(0, math.pi/2, 0)),
+}
+```
+
+左下角有个状态条，显示三键状态 + 原生接口是否接上 + 每次 RAGE 的结果（发包失败会写原因）。
+卸载：执行器里 `getgenv().RageLiteUnload()`。
 
 ## Kicia 全套（ragebot 在这）
 
