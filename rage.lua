@@ -27,7 +27,7 @@ local CFG = {
     aimPart   = "HitboxHead",
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
-    tpMaxDist = 1000,    -- 传送距离上限（studs）
+    tpMaxDist = 99999,   -- 传送距离上限，99999 = 不限制（全图都能传）
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -932,6 +932,27 @@ lst.Padding = UDim.new(0, 3)
 lst.SortOrder = Enum.SortOrder.LayoutOrder
 lst.Parent = scroll
 
+local function makeButtonRow(parent, label, action, order)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, 34)
+    b.BackgroundColor3 = Color3.fromRGB(34, 40, 30)
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.Gotham
+    b.TextSize = 13
+    b.Text = "  " .. label
+    b.TextXAlignment = Enum.TextXAlignment.Left
+    b.TextColor3 = Color3.fromRGB(255, 225, 120)
+    b.LayoutOrder = order or 999
+    b.ZIndex = 4002
+    b.Parent = parent
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = b
+    b.MouseButton1Click:Connect(function()
+        local ok, err = pcall(action)
+        if not ok then warn("[RAGE] " .. tostring(err)) end
+    end)
+    return b
+end
+
 local ord = 0
 local function nextOrd() ord = ord + 1; return ord end
 local function header(text)
@@ -956,6 +977,13 @@ makeStepper(scroll, "SPREAD 边距", "spreadX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SPREAD 垂直", "spreadY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SPREAD 大小", "spreadSize", 6, 40, 160, nextOrd())
 header("FIRE 键（自动开火）")
+makeButtonRow(scroll, "自动开火：点我切换", function()
+    CFG.autoFire = not CFG.autoFire
+    btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
+    btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
+    fireNext = 0
+    saveCfg()
+end, nextOrd())
 makeStepper(scroll, "准星范围", "fireWindow", 10, 20, 300, nextOrd())
 makeStepper(scroll, "右边距", "fireX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直", "fireY", 10, -700, 700, nextOrd())
@@ -965,7 +993,7 @@ makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "teamSize", 6, 50, 160, nextOrd())
 header("TP 键")
-makeStepper(scroll, "最大传送距离", "tpMaxDist", 10, 20, 400, nextOrd())
+makeStepper(scroll, "最大传送距离(99999=不限)", "tpMaxDist", 100, 20, 99999, nextOrd())
 makeStepper(scroll, "右边距", "tpX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "tpY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "tpSize", 6, 50, 160, nextOrd())
