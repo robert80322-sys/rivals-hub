@@ -464,26 +464,12 @@ local function rageFire()
     return false
 end
 
--- RAGE 自己不开枪：它只负责把复制根挂到目标身上（让后续的包能穿墙）。
--- 真正扣扳机的是 FIRE 开关 —— 不开 FIRE 就一发都不会打出去。
+-- RAGE = 完整 ragebot：挂复制根（穿墙）+ 自己连续开火
 task.spawn(function()
     while true do
         if rageOn then
-            local p = nearestEnemy(CFG.maxDist)
-            local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if p and myRoot then
-                local _, ch = humOf(p)
-                local head, body = partsOf(ch)
-                local part = head or body
-                if part then
-                    local ok = setRepRoot(myRoot, part)
-                    repRootActive = ok
-                    rageStatus = ok and ("穿墙挂好 → " .. p.Name) or "穿墙挂不上"
-                end
-            elseif not p then
-                rageStatus = "没有目标"
-            end
-            task.wait(0.15)
+            rageFire()
+            task.wait(CFG.rageDelay)
         else
             if repRootActive then
                 local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -495,87 +481,6 @@ task.spawn(function()
         end
     end
 end)
-
---═══════════ UI ═══════════
-pcall(function()
-    local host = (gethui and gethui()) or game:GetService("CoreGui")
-    for _, v in ipairs(host:GetChildren()) do
-        if v.Name == "RageLiteUI" then v:Destroy() end
-    end
-end)
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "RageLiteUI"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 2147483000
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-local okP = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
-if not okP then gui.Parent = LP:WaitForChild("PlayerGui") end
-
-local function makeBtn(key, text, color, side)
-    side = side or "right"
-    local b = Instance.new("TextButton")
-    if side == "left" then
-        b.AnchorPoint = Vector2.new(0, 0.5)
-        b.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
-    else
-        b.AnchorPoint = Vector2.new(1, 0.5)
-        b.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
-    end
-    b.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
-    b.BackgroundColor3 = color
-    b.BackgroundTransparency = 0.72
-    b.BorderSizePixel = 0
-    b.Font = Enum.Font.GothamBold
-    b.TextSize = 13
-    b.Text = text
-    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-    b.ZIndex = 3000
-    b.Parent = gui
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = b
-    local s2 = Instance.new("UIStroke"); s2.Color = color; s2.Transparency = 0.45; s2.Parent = b
-    return b
-end
-
-local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
-local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
-local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
-local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
-local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80), "left")
-local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
-local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
-
-local function applyLayout()
-    local function set(btn, key, side)
-        if not btn then return end
-        btn.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
-        if side == "left" then
-            btn.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
-        else
-            btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
-        end
-    end
-    set(btnTeam, "team")
-    set(btnTp, "tp")
-    set(btnAim, "aim")
-    set(btnRage, "rage")
-    set(btnFire, "fire", "left")
-    set(btnSpread, "spread", "left")
-    set(btnSilent, "silent", "left")
-end
-
-local function paint(btn, on, base)
-    btn.BackgroundTransparency = on and 0.22 or 0.72
-    btn.Text = on and (base .. " ●") or base
-end
-
--- TEAM：亮 = 排掉队友；暗（ALL）= 连队友一起打
-local function paintTeam()
-    if not btnTeam then return end
-    btnTeam.BackgroundTransparency = CFG.teamFilter and 0.22 or 0.72
-    btnTeam.Text = CFG.teamFilter and "TEAM" or "ALL"
-end
 
 --═══════════ 自动开火（准星贴人就替玩家扣扳机） ═══════════
 local fireNext = 0
@@ -591,9 +496,8 @@ local function autoFireTick()
     local vp = cam.ViewportSize
     local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
 
-    -- RAGE 开着 = 复制根已经挂到目标身上，这时不看准星，直接打最近的那个
-    local window = rageOn and math.huge or CFG.fireWindow
-    local best, bestD = nil, window
+    -- FIRE 是独立开关，只看准星窗口，和 RAGE 无关
+    local best, bestD = nil, CFG.fireWindow
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP and not isAlly(p) then
             local hum, ch = humOf(p)
@@ -629,13 +533,6 @@ local function autoFireTick()
     local myChar = LP.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     local origin = myRoot and myRoot.Position or cam.CFrame.Position
-    if rageOn then
-        -- 穿墙模式：包里的起点写在目标旁边，人的实际位置不参与判定
-        local targetPos = best.part.Position
-        local dir = origin - targetPos
-        dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
-        origin = targetPos + dir * CFG.teleportReach + Vector3.new(0, CFG.attackHeight, 0)
-    end
     local aim = CFrame.new(origin, best.part.Position)
     local shot = {
         [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
@@ -1056,8 +953,79 @@ makeStepper(scroll, "右边距", "rageX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "rageY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "rageSize", 6, 50, 160, nextOrd())
 
+--═══════════ 玩家列表（手动标队友） ═══════════
+header("玩家 · 点一下切 队友/敌人")
+local playerBox = Instance.new("Frame")
+playerBox.Size = UDim2.new(1, 0, 0, 0)
+playerBox.BackgroundTransparency = 1
+playerBox.LayoutOrder = nextOrd()
+playerBox.ZIndex = 4001
+playerBox.Parent = scroll
+pcall(function() playerBox.AutomaticSize = Enum.AutomaticSize.Y end)
+local plLayout = Instance.new("UIListLayout")
+plLayout.Padding = UDim.new(0, 2)
+plLayout.SortOrder = Enum.SortOrder.LayoutOrder
+plLayout.Parent = playerBox
+
+function refreshPlayerList()
+    if not playerBox then return end
+    for _, ch in ipairs(playerBox:GetChildren()) do
+        if ch:IsA("TextButton") then ch:Destroy() end
+    end
+    local n = 0
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            n = n + 1
+            local ally = CFG.allyIds[tostring(p.UserId)] == true
+            local b = Instance.new("TextButton")
+            b.Size = UDim2.new(1, 0, 0, 30)
+            b.BackgroundColor3 = ally and Color3.fromRGB(36, 84, 48) or Color3.fromRGB(46, 34, 38)
+            b.BorderSizePixel = 0
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 12
+            b.Text = "  " .. p.Name .. (ally and "   [队友]" or "   [敌人]")
+            b.TextXAlignment = Enum.TextXAlignment.Left
+            b.TextColor3 = ally and Color3.fromRGB(140, 255, 170) or Color3.fromRGB(255, 150, 150)
+            b.LayoutOrder = n
+            b.ZIndex = 4002
+            b.Parent = playerBox
+            local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 5); cc.Parent = b
+            b.MouseButton1Click:Connect(function()
+                local key = tostring(p.UserId)
+                if CFG.allyIds[key] then
+                    CFG.allyIds[key] = nil
+                else
+                    CFG.allyIds[key] = true
+                end
+                saveCfg()
+                refreshPlayerList()
+            end)
+        end
+    end
+    if n == 0 then
+        local b = Instance.new("TextLabel")
+        b.Size = UDim2.new(1, 0, 0, 24)
+        b.BackgroundTransparency = 1
+        b.Font = Enum.Font.Gotham
+        b.TextSize = 11
+        b.Text = "  房间里只有你自己"
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.TextColor3 = Color3.fromRGB(150, 150, 160)
+        b.Parent = playerBox
+    end
+end
+
+task.spawn(function()
+    while task.wait(1.5) do
+        if layoutPanel and layoutPanel.Visible then
+            pcall(refreshPlayerList)
+        end
+    end
+end)
+
 gear.MouseButton1Click:Connect(function()
     layoutPanel.Visible = not layoutPanel.Visible
+    if layoutPanel.Visible then pcall(refreshPlayerList) end
 end)
 
 -- 状态条
