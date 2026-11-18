@@ -10,7 +10,8 @@ Roblox **Rivals** 的客户端脚本，面向**手机执行器**（Delta / Codex
 | `loader.lua` | 多镜像兜底 → 加载 `main.lua` | 日常（GitHub 直连抽风时自动换源） |
 | `main.lua` | 手枪版本体，一个面板全搞定 | 只想轻量用 |
 | `all.lua` | 先拉 Kicia 全套（含 ragebot）再拉本 hub | 想要完整功能 |
-| `rage.lua` | **独立三键版**：TP / AIM / RAGE，无面板 | 只要这三件事 |
+| `rage.lua` | **独立多键版**：TP / AIM / RAGE / FIRE / SILENT / SPREAD / TEAM | 要全套 | 
+| `fire.lua` | **只有一个开关**：自动开火，屏幕上就一个 FIRE 圆键 | 只想要自动开火 |
 
 ```lua
 -- 日常
