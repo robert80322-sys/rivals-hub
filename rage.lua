@@ -231,6 +231,7 @@ local rageNext   = 0
 local rageStatus = "待命"
 local rageTPNext = 0
 local rageHome   = nil      -- 按下去之前站在哪
+local repRootActive = false
 local rageBack   = true     -- 松手回原位
 
 local function equippedItem()
@@ -252,6 +253,42 @@ local function equippedItem()
     end)
     if setthreadidentity and ident then pcall(setthreadidentity, ident) end
     return ok and item or nil
+end
+
+-- 穿墙的核心：把角色的「物理复制根」指到目标命中盒上。
+-- 角色本身一步不动，但服务端算射线和距离时用的是这个根 —— 所以墙后的目标也能打到。
+-- 名字用 PhysicsRepRootRef（新），失败再退回 PhysicsRepRootPart（旧）。
+local function setRepRoot(root, part)
+    if not root then return false end
+    local hide = sethiddenproperty or set_hidden_property or set_hidden_prop
+    local target = part or root
+    local value = target
+    local handle = getgenv and getgenv().InstanceHandle
+    if type(handle) == "table" and type(handle.new) == "function" then
+        local okH, made = pcall(handle.new, target)
+        if okH and made ~= nil then value = made end
+    end
+    local id
+    if getthreadidentity and setthreadidentity then
+        pcall(function() id = getthreadidentity() end)
+        pcall(setthreadidentity, 8)
+    end
+    local ok = false
+    if type(hide) == "function" then
+        ok = pcall(hide, root, "PhysicsRepRootRef", value)
+        if not ok then ok = pcall(hide, root, "PhysicsRepRootPart", part) end
+    end
+    -- 执行器没有 sethiddenproperty 时，用 identity 8 直接赋值（RobloxScript 权限能写受保护属性）
+    if not ok and setthreadidentity then
+        local prev
+        pcall(function() prev = getthreadidentity and getthreadidentity() end)
+        pcall(setthreadidentity, 8)
+        ok = pcall(function() root.PhysicsRepRootRef = value end)
+        if not ok then ok = pcall(function() root.PhysicsRepRootPart = part end) end
+        if prev then pcall(setthreadidentity, prev) end
+    end
+    if id and setthreadidentity then pcall(setthreadidentity, id) end
+    return ok
 end
 
 -- 传送到目标身边（服务端会认为你就在那儿，所以后面的包打得到）
@@ -283,12 +320,20 @@ local function rageFire()
     local part = head or body
     if not part then rageStatus = "目标没有命中盒" return false end
 
-    -- 只有距离在 tpMaxDist 以内才贴过去；超了就直接远距离打，不传送
+    -- 穿墙：把复制根挂到目标命中盒上（人不动，服务器认为你贴着他）
     local myChar0 = LP.Character
     local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
     local tRoot0 = ch:FindFirstChild("HumanoidRootPart")
     local canTP = (myRoot0 ~= nil and tRoot0 ~= nil)
         and (tRoot0.Position - myRoot0.Position).Magnitude <= CFG.tpMaxDist
+
+    local wallOK = false
+    if myRoot0 then
+        wallOK = setRepRoot(myRoot0, part)
+        repRootActive = wallOK
+    end
+
+    -- 距离够近的话再真的贴过去（双重保险）
     if canTP and now >= rageTPNext then
         rageTeleport(ch)
         rageTPNext = now + 0.11
@@ -320,7 +365,7 @@ local function rageFire()
         )
     end)
     if ok then
-        rageStatus = (canTP and "贴脸开火 → " or "远距离开火 → ") .. p.Name
+        rageStatus = (wallOK and "穿墙" or "普通") .. (canTP and "·贴脸 → " or "·远程 → ") .. p.Name
         return true
     end
     rageStatus = "发包失败：" .. tostring(err)
@@ -531,6 +576,12 @@ btnRage.MouseButton1Click:Connect(function()
         rageNext, rageTPNext = 0, 0
     else
         rageNext = math.huge
+        if repRootActive then
+            local ch0 = LP.Character
+            local r0 = ch0 and ch0:FindFirstChild("HumanoidRootPart")
+            if r0 then setRepRoot(r0, nil) end
+            repRootActive = false
+        end
         if rageBack and rageHome and LP.Character then
             pcall(function() LP.Character:PivotTo(rageHome) end)
         end
@@ -735,7 +786,9 @@ end
 task.spawn(function()
     while true do
         task.wait(0.35)
-        local okTxt = RIVALS.ready and "原生接口 OK" or "原生接口 缺"
+        local hideFn = sethiddenproperty or set_hidden_property or set_hidden_prop
+        local okTxt = (RIVALS.ready and "接口OK" or "接口缺")
+            .. "/" .. (type(hideFn) == "function" and "穿墙OK" or "穿墙缺")
         local allies = 0
         if CFG.teamFilter then
             for _, p in ipairs(Players:GetPlayers()) do
