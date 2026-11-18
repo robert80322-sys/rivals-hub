@@ -42,10 +42,9 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 
 | 键 | 行为 |
 |---|---|
-| **RELOAD**（橙，左侧） | 去换弹后摇：换完弹服务端会在武器上打 `_reload_cooldown` 时间戳，客户端拿它禁射。这个开关每 0.1 秒把它压到 0，动画照放、锁没了 |
 | **SILENT**（紫，左侧） | 静默：视角一点不动，只把朝向用 `UpdateCameraRotation` 发给服务端，它按这个判定你的枪口方向 |
 | **SPREAD**（蓝，左侧） | 无扩散：每 0.2 秒把当前武器 `Info` 里的 `Spread / HipSpread / AimSpread / MinSpread / MaxSpread` 清零 |
-| **TEAM**（绿） | **队友识别开关**：亮着 = TP/AIM/RAGE 三个键都排掉队友、不 TP 到队友身上；按一下变 `ALL` = 谁都打 |
+| **TEAM**（绿） | **短按**：队友识别开关（亮 = 三个键都排队友，暗 = 谁都打）。**长按 0.6 秒**：把离你最近的那个人手动标成队友（游戏没给队伍信息时用这招） |
 | **TP**（青） | **按住**：每 0.12 秒 `PivotTo` 到最近敌人身边 **1 米**，松手即停。超过 `tpMaxDist`（默认 120 studs，约一个竞技场跨度）不传，状态栏会写「目标超出 TP 距离」 |
 | **AIM**（红） | **点一下开、再点关**：暴力锁头，**360° 无死角**（不做 FOV 过滤），射线判断遮挡，头被墙挡住自动改打身体 |
 | **RAGE**（橙） | **点一下开、再点关**。穿墙照 Kicia 的 HitscanStrategy 做：**包里的起点不用自己站的位置，改用 `standPos`（目标位置 + 远离方向 × reach + 腰高）**，配合 `sethiddenproperty(root,"PhysicsRepRootRef",目标命中盒)` 让服务端认可这个位置。身体走 `setthreadidentity(8)` 直接写 CFrame，不走 `PivotTo`，所以不会被墙挡；关掉时恢复复制根并回原位 |

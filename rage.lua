@@ -27,15 +27,14 @@ local CFG = {
     aimPart   = "HitboxHead",
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
-    tpMaxDist = 120,     -- 传送距离上限（studs），大概一个竞技场的跨度
+    tpMaxDist = 1000,    -- 传送距离上限（studs）
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
+    allyIds    = {},     -- 手动标记为队友的 UserId
     silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
-    reloadOn   = false,  -- 去换弹后摇：把 _reload_cooldown 压在 0
-    reloadX = 12, reloadY = -168, reloadSize = 64,
     spreadOn   = false,  -- 无扩散：把武器的 spread 字段清零
     spreadX = 12, spreadY = -84, spreadSize = 64,
     silentX = 12, silentY = 0,   silentSize = 64,
@@ -132,25 +131,36 @@ local function canSee(part, ch)
 end
 
 -- 队友识别：Team 对象 / Team 属性 / 手动黑名单，任一层命中就算自己人
-local ALLY_IDS = {}   -- 手动排除：[UserId] = true
+CFG.allyIds = CFG.allyIds or {}   -- 手动标记的队友：[tostring(UserId)] = true
+
 
 local function isAlly(p)
     if p == LP then return true end
     if CFG.teamFilter == false then return false end   -- 识别关了：谁都打
-    if ALLY_IDS[p.UserId] then return true end
-    if p.Team and LP.Team and p.Team == LP.Team then return true end
+    if CFG.allyIds[tostring(p.UserId)] then return true end
+    -- 1) Roblox Team 对象
+    if p.Team ~= nil and LP.Team ~= nil then
+        if p.Team == LP.Team then return true end
+        if p.Team.Name == LP.Team.Name then return true end
+    end
+    -- 2) TeamColor（Team 对象缺失时它也可能有值；中立色白不算）
+    if p.Neutral ~= true and LP.Neutral ~= true
+    and p.TeamColor ~= nil and LP.TeamColor ~= nil
+    and p.TeamColor == LP.TeamColor then
+        return true
+    end
+    -- 3) 玩家属性
     local a, b = p:GetAttribute("Team"), LP:GetAttribute("Team")
     if a ~= nil and b ~= nil and a == b then return true end
     local na, nb = p:GetAttribute("TeamName"), LP:GetAttribute("TeamName")
-    if type(na) == "string" and type(nb) == "string" and na == nb then return true end
+    if type(na) == "string" and na ~= "" and na == nb then return true end
+    local pa, pb = p:GetAttribute("PartyId"), LP:GetAttribute("PartyId")
+    if pa ~= nil and pb ~= nil and pa == pb then return true end
     return false
 end
 
-getgenv().RageLiteAlly = function(userId, on)
-    if on == false then ALLY_IDS[userId] = nil else ALLY_IDS[userId] = true end
-end
-
-local function nearestEnemy(maxD)
+-- 找最近的一个玩家，不管队伍（用来手动标记队友）
+local function nearestPlayerAny(maxD)
     maxD = maxD or CFG.maxDist
     local ch0 = LP.Character
     local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
@@ -159,11 +169,52 @@ local function nearestEnemy(maxD)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP then
             local hum, ch = humOf(p)
+            local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            if hum and hrp then
+                local d = (hrp.Position - root.Position).Magnitude
+                if d <= maxD and d < bd then bd = d; best = p end
+            end
+        end
+    end
+    return best
+end
+
+-- 给面板/状态栏用：看看自己到底有没有队伍信息
+local function teamInfo()
+    local t = LP.Team
+    local nm = t and t.Name or tostring(LP:GetAttribute("Team") or LP:GetAttribute("TeamName") or "无")
+    return tostring(nm)
+end
+
+getgenv().RageLiteAlly = function(userId, on)
+    if on == false then
+        CFG.allyIds[tostring(userId)] = nil
+    else
+        CFG.allyIds[tostring(userId)] = true
+    end
+    saveCfg()
+end
+
+local function nearestEnemy(maxD, farthest)
+    maxD = maxD or CFG.maxDist
+    local ch0 = LP.Character
+    local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local best, bd = nil, (farthest and -1 or math.huge)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            local hum, ch = humOf(p)
             if hum and not isAlly(p) then
                 local hrp = ch:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local d = (hrp.Position - root.Position).Magnitude
-                    if d <= maxD and d < bd then bd = d; best = p end
+                    if d <= maxD then
+                        if farthest then
+                            if d > bd then bd = d; best = p end
+                        elseif d < bd then
+                            bd = d; best = p
+                        end
+                    end
                 end
             end
         end
@@ -179,7 +230,7 @@ local function doTP()
     local ch0 = LP.Character
     local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
     if not root then return false end
-    local p = nearestEnemy(CFG.tpMaxDist)
+    local p = nearestEnemy(CFG.tpMaxDist, true)   -- TP 优先挑最远的那个
     if not p then
         if nearestEnemy(CFG.maxDist) then
             tpStatus = string.format("目标超出 TP 距离（%d）", math.floor(CFG.tpMaxDist))
@@ -451,7 +502,6 @@ local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
 local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
 local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
-local btnReload = makeBtn("reload", "RELOAD", Color3.fromRGB(255, 140, 90), "left")
 
 local function applyLayout()
     local function set(btn, key, side)
@@ -469,7 +519,6 @@ local function applyLayout()
     set(btnRage, "rage")
     set(btnSpread, "spread", "left")
     set(btnSilent, "silent", "left")
-    set(btnReload, "reload", "left")
 end
 
 local function paint(btn, on, base)
@@ -527,29 +576,32 @@ local function applySpread()
         spreadState = "拿不到武器 Info"
         return
     end
-    local hasField = (type(info.Spread) == "number") or (type(info.AimSpread) == "number")
-    if not hasField then
-        spreadState = "这把武器没有 Spread 字段"
+    -- 动态找：所有名字里带 spread / sway 的数值字段都清零（不同枪字段名不一样）
+    local targets = {}
+    for k, v in pairs(info) do
+        if type(k) == "string" and type(v) == "number" then
+            local lk = string.lower(k)
+            if string.find(lk, "spread", 1, true) or string.find(lk, "sway", 1, true)
+            or string.find(lk, "recoil", 1, true) then
+                table.insert(targets, k)
+            end
+        end
+    end
+    if #targets == 0 then
+        spreadState = "这把武器没有 spread 字段"
         return
     end
     if CFG.spreadOn then
         if spreadBackup == nil or spreadBackup.item ~= item then
-            spreadBackup = {
-                item = item,
-                spread = info.Spread,
-                aim    = info.AimSpread,
-            }
+            local bk = { item = item, vals = {} }
+            for _, k in ipairs(targets) do bk.vals[k] = info[k] end
+            spreadBackup = bk
         end
-        if type(info.Spread) == "number"    then info.Spread = 0 end
-        if type(info.AimSpread) == "number" then info.AimSpread = 0 end
-        spreadState = "已清零"
+        for _, k in ipairs(targets) do info[k] = 0 end
+        spreadState = "清零 " .. #targets .. " 项"
     else
-        if spreadBackup and spreadBackup.item == item then
-            local i2 = spreadBackup.item.Info
-            if type(i2) == "table" then
-                if spreadBackup.spread ~= nil then i2.Spread = spreadBackup.spread end
-                if spreadBackup.aim    ~= nil then i2.AimSpread = spreadBackup.aim end
-            end
+        if spreadBackup and spreadBackup.item == item and type(spreadBackup.item.Info) == "table" then
+            for k, v in pairs(spreadBackup.vals) do spreadBackup.item.Info[k] = v end
         end
         spreadBackup = nil
         spreadState = "原值"
@@ -570,47 +622,7 @@ task.spawn(function()
     end
 end)
 
---═══════════ 换弹后摇 ═══════════
--- 游戏换完弹会在武器上打一个 _reload_cooldown 时间戳（服务端发下来的），
--- 客户端拿它禁射 —— 那就是"后摇"。这里每 0.1 秒把它压到 0，动画照放，但锁没了。
-local reloadState = "原值"
-
-local function clearReloadLag()
-    local item = equippedItem()
-    if not item then reloadState = "拿不到武器" return end
-    local found = false
-    pcall(function()
-        if item:GetAttribute("_reload_cooldown") ~= nil then
-            item:SetAttribute("_reload_cooldown", 0)
-            found = true
-        end
-    end)
-    pcall(function()
-        if item:GetAttribute("_shoot_cooldown_no_ammo") ~= nil then
-            item:SetAttribute("_shoot_cooldown_no_ammo", 0)
-            found = true
-        end
-    end)
-    reloadState = found and "已解除" or "没有冷却字段"
-end
-
-task.spawn(function()
-    while task.wait(0.1) do
-        if CFG.reloadOn then clearReloadLag() end
-    end
-end)
-
 --═══════════ 两个开关按钮 ═══════════
-btnReload.MouseButton1Click:Connect(function()
-    CFG.reloadOn = not CFG.reloadOn
-    btnReload.BackgroundTransparency = CFG.reloadOn and 0.22 or 0.72
-    btnReload.Text = CFG.reloadOn and "RELOAD ●" or "RELOAD"
-    if CFG.reloadOn then clearReloadLag() else reloadState = "原值" end
-    saveCfg()
-end)
-btnReload.BackgroundTransparency = CFG.reloadOn and 0.22 or 0.72
-btnReload.Text = CFG.reloadOn and "RELOAD ●" or "RELOAD"
-
 btnSilent.MouseButton1Click:Connect(function()
     CFG.silentOn = not CFG.silentOn
     btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
@@ -630,10 +642,27 @@ end)
 btnSpread.BackgroundTransparency = CFG.spreadOn and 0.22 or 0.72
 btnSpread.Text = CFG.spreadOn and "SPREAD ●" or "SPREAD"
 
+local teamDownAt = 0
+btnTeam.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch
+    or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        teamDownAt = os.clock()
+    end
+end)
 btnTeam.MouseButton1Click:Connect(function()
-    CFG.teamFilter = not CFG.teamFilter
-    paintTeam()
-    saveCfg()
+    if os.clock() - teamDownAt > 0.6 then
+        -- 长按：把最近的人手动记为队友
+        local p = nearestPlayerAny()
+        if p then
+            CFG.allyIds[tostring(p.UserId)] = true
+            saveCfg()
+            rageStatus = "已把 " .. p.Name .. " 标为队友"
+        end
+    else
+        CFG.teamFilter = not CFG.teamFilter
+        paintTeam()
+        saveCfg()
+    end
 end)
 paintTeam()
 
@@ -823,10 +852,7 @@ local function header(text)
     h.Parent = scroll
 end
 
-header("RELOAD / SILENT / SPREAD 键")
-makeStepper(scroll, "RELOAD 边距", "reloadX", 6, 0, 400, nextOrd())
-makeStepper(scroll, "RELOAD 垂直", "reloadY", 10, -700, 700, nextOrd())
-makeStepper(scroll, "RELOAD 大小", "reloadSize", 6, 40, 160, nextOrd())
+header("SILENT / SPREAD 键")
 makeStepper(scroll, "SILENT 边距", "silentX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SILENT 垂直", "silentY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SILENT 大小", "silentSize", 6, 40, 160, nextOrd())
@@ -888,14 +914,14 @@ task.spawn(function()
             end
         end
         stat.Text = string.format(
-            "  TP %s AIM %s RAGE %s SIL %s SPL %s REL %s %s\n  %s · %s",
+            "  TP %s AIM %s RAGE %s SIL %s SPL %s %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
             CFG.silentOn and "●" or "○",
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
-            (CFG.reloadOn and "●" or "○") .. "(" .. reloadState .. ")",
-            (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
+            (CFG.teamFilter and ("队友 " .. allies .. " [" .. teamInfo() .. "]") or "全打")
+                .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
             okTxt, tpHold and tpStatus or rageStatus)
     end
 end)
