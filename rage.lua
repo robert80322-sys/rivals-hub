@@ -34,6 +34,7 @@ local CFG = {
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
     allyIds    = {},     -- 手动标记为队友的 UserId
+    _cfgVer    = 0,      -- 配置结构版本，用来做迁移
     autoFire   = false,  -- 自动开火：准星附近有敌人就替玩家扣扳机
     fireWindow = 70,     -- 准星多少像素内有目标才开火
     fireX = 12, fireY = -168, fireSize = 92,
@@ -59,6 +60,25 @@ local function saveCfg()
 end
 
 local function loadCfg()
+
+-- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
+-- 这里按版本号做一次迁移，只做一次。
+local CFG_VER = 6
+do
+    local ver = tonumber(CFG._cfgVer) or 0
+    if ver < CFG_VER then
+        CFG.tpMaxDist = 99999
+        CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
+        CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
+        CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
+        CFG.teamX,  CFG.teamY,  CFG.teamSize  = 26, -228, 84
+        CFG.tpX,    CFG.tpY,    CFG.tpSize    = 26, -114, 84
+        CFG.aimX,   CFG.aimY,   CFG.aimSize   = 26, 0, 92
+        CFG.rageX,  CFG.rageY,  CFG.rageSize  = 26, 114, 92
+        CFG._cfgVer = CFG_VER
+        saveCfg()
+    end
+end
     pcall(function()
         if isfile and readfile and isfile(RAGE_CFG_FILE) then
             local t = HttpService:JSONDecode(readfile(RAGE_CFG_FILE))
@@ -727,6 +747,11 @@ btnSilent.MouseButton1Click:Connect(function()
 end)
 btnSilent.BackgroundTransparency = CFG.silentOn and 0.22 or 0.72
 btnSilent.Text = CFG.silentOn and "SILENT ●" or "SILENT"
+
+-- 存档里是开着的，进游戏后也要真的套用一次（不然按钮亮着、状态却是"原值"）
+task.delay(3, function()
+    if CFG.spreadOn then applySpread() end
+end)
 
 btnSpread.MouseButton1Click:Connect(function()
     CFG.spreadOn = not CFG.spreadOn
