@@ -430,11 +430,7 @@ local function rageFire()
         -- 1) 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
         wallOK = setRepRoot(myRoot0, part)
         repRootActive = wallOK
-        -- 2) 距离够的话真把身体也挪过去（写 CFrame，不走 PivotTo，不会被墙挡）
-        if canTP and now >= rageTPNext then
-            setCF(myRoot0, CFrame.new(standPos, targetPos))
-            rageTPNext = now + 0.11
-        end
+        -- 2) 人一步都不动：只让服务端认为你在那边，角色留在原地
     end
 
     local item = equippedItem()
@@ -461,7 +457,7 @@ local function rageFire()
         )
     end)
     if ok then
-        rageStatus = (wallOK and "穿墙" or "普通") .. (canTP and "·贴脸 → " or "·远程 → ") .. p.Name
+        rageStatus = (wallOK and "原地穿墙 → " or "普通 → ") .. p.Name
         return true
     end
     rageStatus = "发包失败：" .. tostring(err)
@@ -823,9 +819,7 @@ btnRage.MouseButton1Click:Connect(function()
             if r0 then setRepRoot(r0, nil) end
             repRootActive = false
         end
-        if rageBack and rageHome and LP.Character then
-            pcall(function() LP.Character:PivotTo(rageHome) end)
-        end
+        -- 人没被移动过，不用回原位
     end
     paint(btnRage, rageOn, "RAGE")
 end)
