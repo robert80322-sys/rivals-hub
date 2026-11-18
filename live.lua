@@ -14,10 +14,11 @@ local FILE  = "rage.lua"
 
 local stamp = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
 
+-- 这两个实测都吃 ?t= 参数（gitmirror / jsDelivr 的 @main 不吃，会返回旧版，别用）
+local RAW = "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/main/" .. FILE
 local SOURCES = {
-    "https://raw.githubusercontent.com/" .. OWNER .. "/" .. REPO .. "/main/" .. FILE .. "?t=" .. stamp,
-    "https://cdn.jsdelivr.net/gh/" .. OWNER .. "/" .. REPO .. "@main/" .. FILE .. "?t=" .. stamp,
-    "https://raw.gitmirror.com/" .. OWNER .. "/" .. REPO .. "/main/" .. FILE .. "?t=" .. stamp,
+    RAW .. "?t=" .. stamp,
+    "https://ghproxy.net/" .. RAW .. "?t=" .. stamp,
 }
 
 local code, used
