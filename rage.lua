@@ -21,6 +21,8 @@ if not LP then
     LP = Players.LocalPlayer
 end
 
+local SCRIPT_VER = "9"   -- 状态栏左上角会显示，确认加载到的是不是新版
+
 local CFG = {
     tpRange   = 1.0,     -- 贴到敌人身上的距离（米）
     tpRate    = 0.12,    -- TP 刷新间隔
@@ -1068,7 +1070,7 @@ task.spawn(function()
             end
         end
         stat.Text = string.format(
-            "  TP %s AIM %s RAGE %s FIRE %s SIL %s SPL %s %s\n  %s · %s",
+            "  v" .. SCRIPT_VER .. "  TP %s AIM %s RAGE %s FIRE %s SIL %s SPL %s %s\n  %s · %s",
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
@@ -1088,4 +1090,4 @@ getgenv().RageLiteUnload = function()
     getgenv().RageLiteUnload = nil
 end
 
-print("[RAGE LITE] 已加载 · TP 按住 / AIM·RAGE 点一下开关 · 左侧 ⚙ 调位置")
+print("[RAGE LITE v" .. SCRIPT_VER .. "] 已加载")
