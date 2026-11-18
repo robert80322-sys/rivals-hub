@@ -42,9 +42,12 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 
 | 键 | 行为 |
 |---|---|
-| **TP**（青） | 每 0.12 秒 `PivotTo` 到最近敌人身边 **1 米**，按住就一直贴 |
-| **AIM**（红） | 按住暴力锁头，**360° 无死角**（不做 FOV 过滤），射线判断遮挡，头被墙挡住自动改打身体 |
-| **RAGE**（橙） | 按住按 Kicia 的 ragebot 发包：`UseItem:FireServer(ObjectID, StartShooting, {["\1"]=shot, ["\2"]=true})`，shot 里带 `EncodeCFrame` 的起止 CFrame + 目标命中盒，**不发视线检查 ⇒ 穿墙** |
+| **TP**（青） | **按住**：每 0.12 秒 `PivotTo` 到最近敌人身边 **1 米**，松手即停 |
+| **AIM**（红） | **点一下开、再点关**：暴力锁头，**360° 无死角**（不做 FOV 过滤），射线判断遮挡，头被墙挡住自动改打身体 |
+| **RAGE**（橙） | **点一下开、再点关**：贴到目标身后 2 米 → 连续发 Kicia 那套命中包 → 关掉时自动回原位 |
+
+左边有个 **⚙** 按钮，点开是「按键位置」面板：三个键各自的 **右边距 / 垂直 / 大小**，`+/-` 调完立刻生效，
+自动存到执行器的 `RivalsRageCfg.json`，下次加载自动读回。不用拖，手机上拖动会跟游戏手势打架。
 
 RAGE 的包结构是照 Kicia 反编译出来的原始布局抄的：
 

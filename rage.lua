@@ -28,7 +28,35 @@ local CFG = {
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
     bone      = true,    -- AIM 优先打头，被挡则打身体
+    -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
+    tpX   = 26,  tpY   = -112, tpSize   = 84,
+    aimX  = 26,  aimY  = 0,    aimSize  = 92,
+    rageX = 26,  rageY = 118,  rageSize = 92,
 }
+
+local RAGE_CFG_FILE = "RivalsRageCfg.json"
+local HttpService = game:GetService("HttpService")
+
+local function saveCfg()
+    pcall(function()
+        if writefile then
+            writefile(RAGE_CFG_FILE, HttpService:JSONEncode(CFG))
+        end
+    end)
+end
+
+local function loadCfg()
+    pcall(function()
+        if isfile and readfile and isfile(RAGE_CFG_FILE) then
+            local t = HttpService:JSONDecode(readfile(RAGE_CFG_FILE))
+            for k, v in pairs(t) do
+                if CFG[k] ~= nil and type(CFG[k]) == type(v) then CFG[k] = v end
+            end
+        end
+    end)
+end
+
+loadCfg()
 
 --═══════════ Rivals 原生接口 ═══════════
 local RIVALS = { ready = false }
@@ -156,10 +184,10 @@ task.spawn(function()
 end)
 
 --═══════════ AIM（360°，跳过墙后） ═══════════
-local aimHold = false
+local aimOn = false
 
 RunService:BindToRenderStep("RageLiteAim", Enum.RenderPriority.Camera.Value + 1, function()
-    if not aimHold then return end
+    if not aimOn then return end
     local p = nearestEnemy()
     if not p then return end
     local _, ch = humOf(p)
@@ -179,7 +207,7 @@ RunService:BindToRenderStep("RageLiteAim", Enum.RenderPriority.Camera.Value + 1,
 end)
 
 --═══════════ RAGE（Kicia 打法：贴到目标身上再发包，穿墙） ═══════════
-local rageHold   = false
+local rageOn     = false
 local rageNext   = 0
 local rageStatus = "待命"
 local rageTPNext = 0
@@ -277,7 +305,7 @@ end
 
 task.spawn(function()
     while true do
-        if rageHold then
+        if rageOn then
             rageFire()
             task.wait(CFG.rageDelay)
         else
@@ -286,7 +314,7 @@ task.spawn(function()
     end
 end)
 
---═══════════ UI：三个键 ═══════════
+--═══════════ UI ═══════════
 pcall(function()
     local host = (gethui and gethui()) or game:GetService("CoreGui")
     for _, v in ipairs(host:GetChildren()) do
@@ -303,11 +331,11 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local okP = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
 if not okP then gui.Parent = LP:WaitForChild("PlayerGui") end
 
-local function makeBtn(text, color, yOffset, size)
+local function makeBtn(key, text, color)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.fromOffset(size, size)
     b.AnchorPoint = Vector2.new(1, 0.5)
-    b.Position = UDim2.new(1, -26, 0.5, yOffset)
+    b.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
+    b.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
     b.BackgroundColor3 = color
     b.BackgroundTransparency = 0.72
     b.BorderSizePixel = 0
@@ -318,52 +346,230 @@ local function makeBtn(text, color, yOffset, size)
     b.ZIndex = 3000
     b.Parent = gui
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = b
-    local s = Instance.new("UIStroke"); s.Color = color; s.Transparency = 0.45; s.Parent = b
+    local s2 = Instance.new("UIStroke"); s2.Color = color; s2.Transparency = 0.45; s2.Parent = b
     return b
 end
 
-local btnTp   = makeBtn("TP",   Color3.fromRGB(40, 210, 235), -112, 84)
-local btnAim  = makeBtn("AIM",  Color3.fromRGB(255, 70, 70),    0,   92)
-local btnRage = makeBtn("RAGE", Color3.fromRGB(255, 175, 40),   118, 92)
+local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
+local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
+local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
 
-local function bindHold(btn, setter)
-    btn.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch
-        or i.UserInputType == Enum.UserInputType.MouseButton1 then
-            setter(true)
-            btn.BackgroundTransparency = 0.42
-        end
-    end)
-    btn.InputEnded:Connect(function()
-        setter(false)
-        btn.BackgroundTransparency = 0.72
-    end)
+local function applyLayout()
+    local function set(btn, key)
+        if not btn then return end
+        btn.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
+        btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+    end
+    set(btnTp, "tp")
+    set(btnAim, "aim")
+    set(btnRage, "rage")
 end
 
-bindHold(btnTp,   function(v) tpHold = v   end)
-bindHold(btnAim,  function(v) aimHold = v  end)
-btnRage.InputBegan:Connect(function(i)
+local function paint(btn, on, base)
+    btn.BackgroundTransparency = on and 0.22 or 0.72
+    btn.Text = on and (base .. " ●") or base
+end
+
+-- TP 还是按住（松开立刻停，贴人这种事要能随时断）
+btnTp.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.Touch
     or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        tpHold = true
+        paint(btnTp, true, "TP")
+    end
+end)
+btnTp.InputEnded:Connect(function()
+    tpHold = false
+    paint(btnTp, false, "TP")
+end)
+
+-- AIM / RAGE 是开关：点一下开，再点一下关
+btnAim.MouseButton1Click:Connect(function()
+    aimOn = not aimOn
+    paint(btnAim, aimOn, "AIM")
+end)
+
+btnRage.MouseButton1Click:Connect(function()
+    rageOn = not rageOn
+    if rageOn then
         local ch = LP.Character
         local root = ch and ch:FindFirstChild("HumanoidRootPart")
         rageHome = root and root.CFrame or nil
         rageNext, rageTPNext = 0, 0
-        rageHold = true
-        btnRage.BackgroundTransparency = 0.42
+    else
+        rageNext = math.huge
+        if rageBack and rageHome and LP.Character then
+            pcall(function() LP.Character:PivotTo(rageHome) end)
+        end
     end
+    paint(btnRage, rageOn, "RAGE")
 end)
-btnRage.InputEnded:Connect(function()
-    rageHold = false
-    btnRage.BackgroundTransparency = 0.72
-    if rageBack and rageHome and LP.Character then
-        pcall(function() LP.Character:PivotTo(rageHome) end)
+
+--═══════════ 布局面板（齿轮） ═══════════
+local function makeStepper(parent, label, key, step, minv, maxv, order)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1, 0, 0, 32)
+    holder.BackgroundColor3 = Color3.fromRGB(27, 29, 38)
+    holder.BorderSizePixel = 0
+    holder.LayoutOrder = order
+    holder.ZIndex = 4001
+    holder.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, -112, 1, 0)
+    lbl.Position = UDim2.fromOffset(8, 0)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(230, 230, 238)
+    lbl.Parent = holder
+
+    local val = Instance.new("TextLabel")
+    val.AnchorPoint = Vector2.new(1, 0.5)
+    val.Position = UDim2.new(1, -40, 0.5, 0)
+    val.Size = UDim2.fromOffset(40, 20)
+    val.BackgroundTransparency = 1
+    val.Font = Enum.Font.GothamBold
+    val.TextSize = 12
+    val.TextXAlignment = Enum.TextXAlignment.Center
+    val.TextColor3 = Color3.fromRGB(120, 220, 255)
+    val.Parent = holder
+
+    local function mk(txt, dx)
+        local b = Instance.new("TextButton")
+        b.AnchorPoint = Vector2.new(1, 0.5)
+        b.Position = UDim2.new(1, dx, 0.5, 0)
+        b.Size = UDim2.fromOffset(28, 24)
+        b.BackgroundColor3 = Color3.fromRGB(48, 51, 64)
+        b.BorderSizePixel = 0
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 15
+        b.Text = txt
+        b.TextColor3 = Color3.fromRGB(240, 240, 245)
+        b.ZIndex = 4002
+        b.Parent = holder
+        local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 5); cc.Parent = b
+        return b
     end
+    local minus = mk("-", -80)
+    local plus  = mk("+", -6)
+
+    local function upd() val.Text = tostring(math.floor(CFG[key] + 0.5)) end
+    local function chg(d)
+        CFG[key] = math.clamp(math.floor(CFG[key] + d + 0.5), minv, maxv)
+        upd(); applyLayout(); saveCfg()
+    end
+    minus.MouseButton1Click:Connect(function() chg(-step) end)
+    plus.MouseButton1Click:Connect(function() chg(step) end)
+    upd()
+end
+
+local gear = Instance.new("TextButton")
+gear.Size = UDim2.fromOffset(40, 40)
+gear.AnchorPoint = Vector2.new(0, 0.5)
+gear.Position = UDim2.new(0, 12, 0.5, 200)
+gear.BackgroundColor3 = Color3.fromRGB(30, 32, 42)
+gear.BackgroundTransparency = 0.35
+gear.BorderSizePixel = 0
+gear.Font = Enum.Font.GothamBold
+gear.TextSize = 16
+gear.Text = "⚙"
+gear.TextColor3 = Color3.fromRGB(200, 205, 220)
+gear.ZIndex = 3000
+gear.Parent = gui
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = gear
+end
+
+local layoutPanel = Instance.new("Frame")
+layoutPanel.Size = UDim2.fromOffset(228, 336)
+layoutPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+layoutPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+layoutPanel.BackgroundColor3 = Color3.fromRGB(12, 13, 19)
+layoutPanel.BackgroundTransparency = 0.05
+layoutPanel.BorderSizePixel = 0
+layoutPanel.Visible = false
+layoutPanel.ZIndex = 4000
+layoutPanel.Parent = gui
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = layoutPanel
+    local st = Instance.new("UIStroke"); st.Color = Color3.fromRGB(255, 175, 40); st.Transparency = 0.5; st.Parent = layoutPanel
+end
+
+local head = Instance.new("TextButton")
+head.Size = UDim2.new(1, 0, 0, 30)
+head.BackgroundColor3 = Color3.fromRGB(30, 26, 18)
+head.BorderSizePixel = 0
+head.Font = Enum.Font.GothamBold
+head.TextSize = 13
+head.Text = "  按键位置   ×"
+head.TextXAlignment = Enum.TextXAlignment.Left
+head.TextColor3 = Color3.fromRGB(255, 190, 80)
+head.AutoButtonColor = false
+head.ZIndex = 4001
+head.Parent = layoutPanel
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = head
+end
+head.MouseButton1Click:Connect(function() layoutPanel.Visible = false end)
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -12, 1, -40)
+scroll.Position = UDim2.fromOffset(6, 34)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 3
+scroll.ScrollBarImageColor3 = Color3.fromRGB(255, 175, 40)
+scroll.CanvasSize = UDim2.fromOffset(0, 0)
+scroll.ZIndex = 4001
+scroll.Parent = layoutPanel
+pcall(function()
+    scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+end)
+local lst = Instance.new("UIListLayout")
+lst.Padding = UDim.new(0, 3)
+lst.SortOrder = Enum.SortOrder.LayoutOrder
+lst.Parent = scroll
+
+local ord = 0
+local function nextOrd() ord = ord + 1; return ord end
+local function header(text)
+    local h = Instance.new("TextLabel")
+    h.Size = UDim2.new(1, 0, 0, 22)
+    h.BackgroundTransparency = 1
+    h.Font = Enum.Font.GothamBold
+    h.TextSize = 12
+    h.Text = "  " .. text
+    h.TextXAlignment = Enum.TextXAlignment.Left
+    h.TextColor3 = Color3.fromRGB(120, 200, 255)
+    h.LayoutOrder = nextOrd()
+    h.ZIndex = 4001
+    h.Parent = scroll
+end
+
+header("TP 键")
+makeStepper(scroll, "右边距", "tpX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "垂直",   "tpY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "大小",   "tpSize", 6, 50, 160, nextOrd())
+header("AIM 键")
+makeStepper(scroll, "右边距", "aimX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "垂直",   "aimY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "大小",   "aimSize", 6, 50, 160, nextOrd())
+header("RAGE 键")
+makeStepper(scroll, "右边距", "rageX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "垂直",   "rageY", 10, -700, 700, nextOrd())
+makeStepper(scroll, "大小",   "rageSize", 6, 50, 160, nextOrd())
+
+gear.MouseButton1Click:Connect(function()
+    layoutPanel.Visible = not layoutPanel.Visible
 end)
 
 -- 状态条
 local stat = Instance.new("TextLabel")
-stat.Size = UDim2.fromOffset(260, 46)
+stat.Size = UDim2.fromOffset(268, 46)
 stat.AnchorPoint = Vector2.new(0, 1)
 stat.Position = UDim2.new(0, 10, 1, -8)
 stat.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
@@ -392,16 +598,17 @@ task.spawn(function()
         stat.Text = string.format(
             "  TP %s   AIM %s   RAGE %s   队友 %d\n  %s · %s",
             tpHold and "●" or "○",
-            aimHold and "●" or "○",
-            rageHold and "●" or "○",
+            aimOn and "●" or "○",
+            rageOn and "●" or "○",
             allies, okTxt, rageStatus)
     end
 end)
 
 getgenv().RageLiteUnload = function()
+    rageOn, aimOn, tpHold = false, false, false
     pcall(function() gui:Destroy() end)
     pcall(function() RunService:UnbindFromRenderStep("RageLiteAim") end)
     getgenv().RageLiteUnload = nil
 end
 
-print("[RAGE LITE] 已加载 · 右侧 TP / AIM / RAGE 三个键，按住生效")
+print("[RAGE LITE] 已加载 · TP 按住 / AIM·RAGE 点一下开关 · 左侧 ⚙ 调位置")
