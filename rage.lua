@@ -27,6 +27,7 @@ local CFG = {
     aimPart   = "HitboxHead",
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
+    tpMaxDist = 120,     -- 传送距离上限（studs），大概一个竞技场的跨度
     bone      = true,    -- AIM 优先打头，被挡则打身体
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
@@ -141,7 +142,8 @@ getgenv().RageLiteAlly = function(userId, on)
     if on == false then ALLY_IDS[userId] = nil else ALLY_IDS[userId] = true end
 end
 
-local function nearestEnemy()
+local function nearestEnemy(maxD)
+    maxD = maxD or CFG.maxDist
     local ch0 = LP.Character
     local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
@@ -153,7 +155,7 @@ local function nearestEnemy()
                 local hrp = ch:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local d = (hrp.Position - root.Position).Magnitude
-                    if d <= CFG.maxDist and d < bd then bd = d; best = p end
+                    if d <= maxD and d < bd then bd = d; best = p end
                 end
             end
         end
@@ -163,13 +165,19 @@ end
 
 --═══════════ TP ═══════════
 local tpHold = false
+local tpStatus = "待命"
 
 local function doTP()
     local ch0 = LP.Character
     local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
     if not root then return false end
-    local p = nearestEnemy()
-    if not p then return false end
+    local p = nearestEnemy(CFG.tpMaxDist)
+    if not p then
+        if nearestEnemy(CFG.maxDist) then
+            tpStatus = string.format("目标超出 TP 距离（%d）", math.floor(CFG.tpMaxDist))
+        end
+        return false
+    end
     local _, tch = humOf(p)
     local thrp = tch and tch:FindFirstChild("HumanoidRootPart")
     if not thrp then return false end
@@ -181,7 +189,11 @@ end
 
 task.spawn(function()
     while true do
-        if tpHold then doTP() end
+        if tpHold then
+            if doTP() then tpStatus = "贴过去中" end
+        else
+            tpStatus = "待命"
+        end
         task.wait(CFG.tpRate)
     end
 end)
@@ -259,8 +271,15 @@ local function rageFire()
     local now = os.clock()
     if now < rageNext then return false end
 
-    local p = nearestEnemy()
-    if not p then rageStatus = "没有目标（队友已排除）" return false end
+    local p = nearestEnemy(CFG.tpMaxDist)
+    if not p then
+        if nearestEnemy(CFG.maxDist) then
+            rageStatus = string.format("目标超出 TP 距离（%d）", math.floor(CFG.tpMaxDist))
+        else
+            rageStatus = "没有目标（队友已排除）"
+        end
+        return false
+    end
     local _, ch = humOf(p)
     if not ch then return false end
     local head, body = partsOf(ch)
@@ -574,6 +593,7 @@ makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "teamSize", 6, 50, 160, nextOrd())
 header("TP 键")
+makeStepper(scroll, "最大传送距离", "tpMaxDist", 10, 20, 400, nextOrd())
 makeStepper(scroll, "右边距", "tpX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "tpY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "tpSize", 6, 50, 160, nextOrd())
@@ -625,7 +645,8 @@ task.spawn(function()
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
-            CFG.teamFilter and ("队友 " .. allies) or "全打", okTxt, rageStatus)
+            (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · TP≤" .. math.floor(CFG.tpMaxDist),
+            okTxt, tpHold and tpStatus or rageStatus)
     end
 end)
 
