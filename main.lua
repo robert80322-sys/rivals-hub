@@ -65,6 +65,11 @@ local CFG = {
     bhopX  = 30,  bhopY  = 108,
     aimSize = 94, tpSize = 76, bhopSize = 76,
     bhopAuto = false,   -- 不按住也连跳
+    -- 陀螺仪
+    gyro      = false,
+    gyroSens  = 1.0,    -- 灵敏度倍率
+    gyroInvY  = false,  -- 左右反向
+    gyroInvX  = false,  -- 上下反向
 }
 
 -- 仓库地址（改了仓库记得同步改这里）
@@ -284,7 +289,7 @@ title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
-title.Text = "  RIVALS v8.1   ·   拖动移动"
+title.Text = "  RIVALS v8.2   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -534,6 +539,16 @@ addRow("击中音效",       function() return CFG.hitSound end,    function(v) 
 addStepper("视野值", function() return CFG.fovVal end, function(v) CFG.fovVal = math.clamp(v, 40, 130) end, 5)
 addStepper("相机高", function() return CFG.tpCamY end, function(v) CFG.tpCamY = math.clamp(v, -5, 12) end, 1)
 addStepper("相机远", function() return CFG.tpCamZ end, function(v) CFG.tpCamZ = math.clamp(v, 0, 20) end, 1)
+addRow("陀螺仪", function() return CFG.gyro end, function(v)
+    CFG.gyro = v
+    if v and not _G.GYRO_OK then
+        stat.Text = "  这台设备没报陀螺仪（GYROSCOPE 未启用）"
+    end
+end)
+addStepper("陀螺灵敏度", function() return CFG.gyroSens * 100 end,
+    function(v) CFG.gyroSens = math.clamp(v, 10, 500) / 100 end, 10)
+addRow("陀螺左右反向", function() return CFG.gyroInvY end, function(v) CFG.gyroInvY = v end)
+addRow("陀螺上下反向", function() return CFG.gyroInvX end, function(v) CFG.gyroInvX = v end)
 
 addHeader("传送 / 刷人")
 addRow("自动重生",        function() return CFG.autoRespawn end, function(v) CFG.autoRespawn = v end)
@@ -1245,6 +1260,49 @@ RunService:BindToRenderStep("RivalsThirdPerson", Enum.RenderPriority.Camera.Valu
     end
 end)
 
+-- 陀螺仪：用手机姿态做视角增量，叠在游戏自己的触摸控制上
+_G.GYRO_OK = false
+pcall(function() _G.GYRO_OK = (UIS.GyroscopeEnabled == true) end)
+
+local gLastYaw, gLastPitch = nil, nil
+
+task.delay(4, function()
+    if CFG.gyro and not _G.GYRO_OK and stat then
+        stat.Text = "  陀螺仪开着，但设备没上报 GYROSCOPE —— 执行器或系统禁了传感器"
+    end
+end)
+
+RunService:BindToRenderStep("RivalsGyro", Enum.RenderPriority.Camera.Value + 3, function()
+    if not (CFG.gyro and _G.GYRO_OK) then
+        gLastYaw, gLastPitch = nil, nil
+        return
+    end
+    local rot
+    local ok = pcall(function() rot = UIS:GetDeviceRotation() end)
+    if not ok or not rot then return end
+    local ok2, yaw, pitch = pcall(function() return rot:ToEulerAnglesYXZ() end)
+    if not ok2 or not yaw then return end
+    if gLastYaw == nil then
+        gLastYaw, gLastPitch = yaw, pitch
+        return
+    end
+    local dy = yaw - gLastYaw
+    local dp = pitch - gLastPitch
+    gLastYaw, gLastPitch = yaw, pitch
+    -- 跨 ±180° 的跳变丢掉
+    if dy > math.pi then dy = dy - math.pi * 2
+    elseif dy < -math.pi then dy = dy + math.pi * 2 end
+    if math.abs(dy) > 0.4 or math.abs(dp) > 0.4 then return end
+    if CFG.gyroInvY then dy = -dy end
+    if CFG.gyroInvX then dp = -dp end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local s = CFG.gyroSens
+    cam.CFrame = cam.CFrame
+        * CFrame.Angles(0, -dy * s, 0)
+        * CFrame.Angles(-dp * s, 0, 0)
+end)
+
 --═══════════ 11.9 Kicia 全套（vendor） ═══════════
 local function pullVendor(name)
     for _, b in ipairs(RAW_MIRRORS) do
@@ -1536,4 +1594,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v8.1] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v8.2] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")

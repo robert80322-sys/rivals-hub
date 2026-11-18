@@ -28,7 +28,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 | 瞄准 | 自瞄（平滑/FOV 可调）、自动开火 Trigger、**命中盒瞄准** |
 | 静默 | `静默·官方接口`：给 `Remotes.Replication.Fighter.UpdateCameraRotation` 发编码视角，服务端按它判定，本地画面不动 |
 | | `静默·Hook`：hook `workspace.Raycast` 的备选方案 |
-| 视角 | 第三人称、相机 FOV 覆盖、击中音效 |
+| 视角 | 第三人称、相机 FOV 覆盖、击中音效、**陀螺仪**（姿态微调视角，灵敏度/双向可调） |
 | 按键 | AIM / TP / BHOP 三个触屏键，位置和大小全在面板里调（不用拖） |
 | 移动 | 连跳 BHOP（按住键，或开「自动连跳」免按） |
 | 外观 | **Skinchanger**：独立面板列出游戏皮肤，点一下本地换手持武器外观 |
