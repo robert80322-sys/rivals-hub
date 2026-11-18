@@ -29,7 +29,7 @@ local CFG = {
     aimPart   = "HitboxHead",
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
-    tpMaxDist = 99999,   -- 传送距离上限，99999 = 不限制（全图都能传）
+    tpMaxDist = 1000,    -- 传送距离上限（studs）
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -69,7 +69,7 @@ local CFG_VER = 6
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
-        CFG.tpMaxDist = 99999
+        CFG.tpMaxDist = 1000
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
         CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
@@ -464,13 +464,34 @@ local function rageFire()
     return false
 end
 
+-- RAGE 自己不开枪：它只负责把复制根挂到目标身上（让后续的包能穿墙）。
+-- 真正扣扳机的是 FIRE 开关 —— 不开 FIRE 就一发都不会打出去。
 task.spawn(function()
     while true do
         if rageOn then
-            rageFire()
-            task.wait(CFG.rageDelay)
+            local p = nearestEnemy(CFG.maxDist)
+            local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if p and myRoot then
+                local _, ch = humOf(p)
+                local head, body = partsOf(ch)
+                local part = head or body
+                if part then
+                    local ok = setRepRoot(myRoot, part)
+                    repRootActive = ok
+                    rageStatus = ok and ("穿墙挂好 → " .. p.Name) or "穿墙挂不上"
+                end
+            elseif not p then
+                rageStatus = "没有目标"
+            end
+            task.wait(0.15)
         else
-            task.wait(0.1)
+            if repRootActive then
+                local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                if myRoot then setRepRoot(myRoot, nil) end
+                repRootActive = false
+            end
+            rageStatus = "待命"
+            task.wait(0.2)
         end
     end
 end)
@@ -570,8 +591,9 @@ local function autoFireTick()
     local vp = cam.ViewportSize
     local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
 
-    -- 只在准星附近 CFG.fireWindow 像素内开火，不乱打
-    local best, bestD = nil, CFG.fireWindow
+    -- RAGE 开着 = 复制根已经挂到目标身上，这时不看准星，直接打最近的那个
+    local window = rageOn and math.huge or CFG.fireWindow
+    local best, bestD = nil, window
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP and not isAlly(p) then
             local hum, ch = humOf(p)
@@ -607,6 +629,13 @@ local function autoFireTick()
     local myChar = LP.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     local origin = myRoot and myRoot.Position or cam.CFrame.Position
+    if rageOn then
+        -- 穿墙模式：包里的起点写在目标旁边，人的实际位置不参与判定
+        local targetPos = best.part.Position
+        local dir = origin - targetPos
+        dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
+        origin = targetPos + dir * CFG.teleportReach + Vector3.new(0, CFG.attackHeight, 0)
+    end
     local aim = CFrame.new(origin, best.part.Position)
     local shot = {
         [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
@@ -1014,7 +1043,7 @@ makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "teamSize", 6, 50, 160, nextOrd())
 header("TP 键")
-makeStepper(scroll, "最大传送距离(99999=不限)", "tpMaxDist", 100, 20, 99999, nextOrd())
+makeStepper(scroll, "最大传送距离", "tpMaxDist", 100, 20, 99999, nextOrd())
 makeStepper(scroll, "右边距", "tpX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "tpY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小",   "tpSize", 6, 50, 160, nextOrd())
@@ -1073,7 +1102,8 @@ task.spawn(function()
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies .. " [" .. teamInfo() .. "]") or "全打")
                 .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
-            okTxt, tpHold and tpStatus or rageStatus)
+            okTxt, tpHold and tpStatus
+                or (CFG.autoFire and (fireStatus .. " | " .. rageStatus) or rageStatus))
     end
 end)
 
