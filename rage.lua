@@ -36,7 +36,7 @@ local CFG = {
     allyIds    = {},     -- 手动标记为队友的 UserId
     autoFire   = false,  -- 自动开火：准星附近有敌人就替玩家扣扳机
     fireWindow = 70,     -- 准星多少像素内有目标才开火
-    fireX = 26, fireY = 232, fireSize = 84,
+    fireX = 12, fireY = -168, fireSize = 92,
     silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
     spreadOn   = false,  -- 无扩散：把武器的 spread 字段清零
     spreadX = 12, spreadY = -84, spreadSize = 64,
@@ -503,7 +503,7 @@ local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
 local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
 local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
-local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80))
+local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80), "left")
 local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
 local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
 
@@ -521,7 +521,7 @@ local function applyLayout()
     set(btnTp, "tp")
     set(btnAim, "aim")
     set(btnRage, "rage")
-    set(btnFire, "fire")
+    set(btnFire, "fire", "left")
     set(btnSpread, "spread", "left")
     set(btnSilent, "silent", "left")
 end
@@ -985,7 +985,7 @@ makeButtonRow(scroll, "自动开火：点我切换", function()
     saveCfg()
 end, nextOrd())
 makeStepper(scroll, "准星范围", "fireWindow", 10, 20, 300, nextOrd())
-makeStepper(scroll, "右边距", "fireX", 10, 0, 600, nextOrd())
+makeStepper(scroll, "左边距", "fireX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "垂直", "fireY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小", "fireSize", 6, 40, 160, nextOrd())
 header("TEAM 键（队友识别）")
