@@ -29,6 +29,9 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 | 静默 | `静默·官方接口`：给 `Remotes.Replication.Fighter.UpdateCameraRotation` 发编码视角，服务端按它判定，本地画面不动 |
 | | `静默·Hook`：hook `workspace.Raycast` 的备选方案 |
 | 视角 | 第三人称、相机 FOV 覆盖、击中音效 |
+| 按键 | AIM / TP / BHOP 三个触屏键，位置和大小全在面板里调（不用拖） |
+| 移动 | 连跳 BHOP（按住键，或开「自动连跳」免按） |
+| 外观 | **Skinchanger**：独立面板列出游戏皮肤，点一下本地换手持武器外观 |
 | 移动 | 加速、超级跳 |
 | 传送 | 贴人 TP（最近/随机、站背后/头顶、贴上就开火）、立即贴一次、记录点 / 回记录点、自动重生 |
 
@@ -61,6 +64,16 @@ ReplicatedStorage.Modules.EnumLibrary    : ToEnum
 
 判定盒是角色下的 `HitboxHead` / `HitboxBody`（还有 `*Small` 版本），**不是** `Head` / `HumanoidRootPart`。
 本脚本的透视框、自瞄、静默全部走命中盒，所以框和实际判定对齐。
+
+## 皮肤修改器（Skinchanger）
+
+面板「外观 → 🎨 打开皮肤列表」，弹出一个带搜索框的独立窗口，列出 `ReplicatedStorage.Modules.CosmeticLibrary`
+里所有带图标的皮肤。点一项就本地重建手持 viewmodel（照 Kicia 的 `ApplyLive` 做法：复制 `_serial`、
+写 `Data.Skin/Name`、用 `ClientViewModel.new` 建新的、替换 `item.ViewModel`），只改自己画面。
+
+- 需要 **先进一局**（大厅里读不到 fighter 的 items）
+- 失败会直接在面板底部写原因（缺模块 / 没手持武器 / viewmodel 结构变了）
+- 「↩ 换回原皮肤」回到第一次换之前的那个
 
 ## 手机适配情况
 

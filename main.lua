@@ -59,6 +59,12 @@ local CFG = {
     hitSound     = false,
     -- 手机上 mouse1press / SendMouseButtonEvent 会召唤鼠标指针，多指时乱飘，默认关
     mouseSim     = false,
+    -- 按键布局：X = 距屏幕右边缘的像素，Y = 相对屏幕垂直中心的像素
+    aimX   = 18,  aimY   = 0,
+    tpX    = 30,  tpY    = -108,
+    bhopX  = 30,  bhopY  = 108,
+    aimSize = 94, tpSize = 76, bhopSize = 76,
+    bhopAuto = false,   -- 不按住也连跳
 }
 
 -- 仓库地址（改了仓库记得同步改这里）
@@ -278,7 +284,7 @@ title.BackgroundColor3 = Color3.fromRGB(26, 28, 38)
 title.BorderSizePixel = 0
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
-title.Text = "  RIVALS v7.4   ·   拖动移动"
+title.Text = "  RIVALS v8.1   ·   拖动移动"
 title.TextColor3 = Color3.fromRGB(70, 255, 175)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.AutoButtonColor = false
@@ -348,6 +354,8 @@ local stat            -- 前向声明：状态栏
 local savePoint       -- 前向声明：记录点
 local myChar, applyTP, tpOnce, pickTP, goalFrom   -- 前向声明：传送函数
 local loadKicia, unloadKicia                      -- 前向声明：Kicia 整套
+local applyLayout                                 -- 前向声明：按键布局
+local openSkincare                                -- 前向声明：皮肤面板
 
 local function refreshRows()
     for _, r in ipairs(rows) do
@@ -545,6 +553,24 @@ addButton("←  回记录点", function()
 end)
 addStepper("贴身距离", function() return CFG.tpRange end, function(v) CFG.tpRange = math.clamp(v, 3, 30) end, 1)
 
+addHeader("按键布局 · 右边距 / 垂直偏移")
+addStepper("AIM 右边距",  function() return CFG.aimX end,  function(v) CFG.aimX = math.clamp(v, 0, 600); applyLayout() end, 10)
+addStepper("AIM 垂直",    function() return CFG.aimY end,  function(v) CFG.aimY = math.clamp(v, -700, 700); applyLayout() end, 10)
+addStepper("AIM 大小",    function() return CFG.aimSize end, function(v) CFG.aimSize = math.clamp(v, 50, 160); applyLayout() end, 6)
+addStepper("TP 右边距",   function() return CFG.tpX end,   function(v) CFG.tpX = math.clamp(v, 0, 600); applyLayout() end, 10)
+addStepper("TP 垂直",     function() return CFG.tpY end,   function(v) CFG.tpY = math.clamp(v, -700, 700); applyLayout() end, 10)
+addStepper("TP 大小",     function() return CFG.tpSize end, function(v) CFG.tpSize = math.clamp(v, 40, 160); applyLayout() end, 6)
+addStepper("BHOP 右边距", function() return CFG.bhopX end, function(v) CFG.bhopX = math.clamp(v, 0, 600); applyLayout() end, 10)
+addStepper("BHOP 垂直",   function() return CFG.bhopY end, function(v) CFG.bhopY = math.clamp(v, -700, 700); applyLayout() end, 10)
+addStepper("BHOP 大小",   function() return CFG.bhopSize end, function(v) CFG.bhopSize = math.clamp(v, 40, 160); applyLayout() end, 6)
+addRow("自动连跳（免按）", function() return CFG.bhopAuto end, function(v) CFG.bhopAuto = v end)
+
+addHeader("外观")
+addButton("🎨 打开皮肤列表（Skinchanger）", function() openSkincare() end)
+addButton("↩ 换回原皮肤", function()
+    if originalSkin then stat.Text = "  " .. applySkin(originalSkin) else stat.Text = "  还没换过皮肤" end
+end)
+
 addHeader("Kicia 全套 · ragebot / 物品修改器")
 addButton("⚡ 载入 Kicia 全套（2.1MB）", function()
     stat.Text = "  正在拉 Kicia…"
@@ -596,9 +622,9 @@ end)
 
 -- AIM 触屏按住键
 aimBtn = Instance.new("TextButton")
-aimBtn.Size = UDim2.fromOffset(94, 94)
+aimBtn.Size = UDim2.fromOffset(CFG.aimSize, CFG.aimSize)
 aimBtn.AnchorPoint = Vector2.new(1, 0.5)
-aimBtn.Position = UDim2.new(1, -18, 0.62, 0)
+aimBtn.Position = UDim2.new(1, -CFG.aimX, 0.5, CFG.aimY)
 aimBtn.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
 aimBtn.BackgroundTransparency = 0.75
 aimBtn.BorderSizePixel = 0
@@ -635,9 +661,9 @@ end)
 
 -- TP 快捷键（右侧，AIM 上方）
 local tpBtn = Instance.new("TextButton")
-tpBtn.Size = UDim2.fromOffset(76, 76)
+tpBtn.Size = UDim2.fromOffset(CFG.tpSize, CFG.tpSize)
 tpBtn.AnchorPoint = Vector2.new(1, 0.5)
-tpBtn.Position = UDim2.new(1, -30, 0.62, -108)
+tpBtn.Position = UDim2.new(1, -CFG.tpX, 0.5, CFG.tpY)
 tpBtn.BackgroundColor3 = Color3.fromRGB(40, 220, 255)
 tpBtn.BackgroundTransparency = 0.72
 tpBtn.BorderSizePixel = 0
@@ -657,6 +683,65 @@ tpBtn.MouseButton1Click:Connect(function()
     task.delay(0.7, function() tpBtn.Text = "TP" end)
 end)
 
+-- BHOP 快捷键（按住连跳）
+local bhopBtn = Instance.new("TextButton")
+bhopBtn.Size = UDim2.fromOffset(CFG.bhopSize, CFG.bhopSize)
+bhopBtn.AnchorPoint = Vector2.new(1, 0.5)
+bhopBtn.Position = UDim2.new(1, -CFG.bhopX, 0.5, CFG.bhopY)
+bhopBtn.BackgroundColor3 = Color3.fromRGB(170, 90, 255)
+bhopBtn.BackgroundTransparency = 0.72
+bhopBtn.BorderSizePixel = 0
+bhopBtn.Font = Enum.Font.GothamBold
+bhopBtn.TextSize = 12
+bhopBtn.Text = "BHOP"
+bhopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+bhopBtn.ZIndex = 3000
+bhopBtn.Parent = gui
+do
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = bhopBtn
+    local s2 = Instance.new("UIStroke"); s2.Color = Color3.fromRGB(180, 110, 255); s2.Transparency = 0.5; s2.Parent = bhopBtn
+end
+
+local bhopHold = false
+bhopBtn.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch
+    or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        bhopHold = true
+        bhopBtn.BackgroundTransparency = 0.42
+    end
+end)
+bhopBtn.InputEnded:Connect(function()
+    bhopHold = false
+    bhopBtn.BackgroundTransparency = 0.72
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch then
+        bhopHold = false
+        bhopBtn.BackgroundTransparency = 0.72
+    end
+end)
+
+-- 连跳本体：Humanoid.Jump 每帧请求，落地瞬间就会被下一帧顶起来
+RunService.Heartbeat:Connect(function()
+    if not (bhopHold or CFG.bhopAuto) then return end
+    local ch = LP.Character
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health > 0 then
+        hum.Jump = true
+    end
+end)
+
+-- 布局应用（面板步进器改完立即生效）
+function applyLayout()
+    if aimBtn  then aimBtn.Size  = UDim2.fromOffset(CFG.aimSize, CFG.aimSize)
+                    aimBtn.Position  = UDim2.new(1, -CFG.aimX, 0.5, CFG.aimY) end
+    if tpBtn   then tpBtn.Size   = UDim2.fromOffset(CFG.tpSize, CFG.tpSize)
+                    tpBtn.Position   = UDim2.new(1, -CFG.tpX, 0.5, CFG.tpY) end
+    if bhopBtn then bhopBtn.Size = UDim2.fromOffset(CFG.bhopSize, CFG.bhopSize)
+                    bhopBtn.Position = UDim2.new(1, -CFG.bhopX, 0.5, CFG.bhopY) end
+end
+
+applyLayout()
 refreshRows()
 
 --═══════════ 7. 开火模拟 ═══════════
@@ -1206,6 +1291,232 @@ function unloadKicia()
     return "它没在跑"
 end
 
+--═══════════ 11.95 Skinchanger ═══════════
+local RS = game:GetService("ReplicatedStorage")
+
+local function findModule(name)
+    local roots = {}
+    local ps  = LP:FindFirstChild("PlayerScripts")
+    local rsm = RS:FindFirstChild("Modules")
+    local psm = ps and ps:FindFirstChild("Modules")
+    if rsm then table.insert(roots, rsm) end
+    if psm then table.insert(roots, psm) end
+    for _, root in ipairs(roots) do
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("ModuleScript") and d.Name == name then return d end
+        end
+    end
+    return nil
+end
+
+local skinPanel, skinList, skinSearch, skinStatus
+local fillSkinList
+local skinCache = {}
+local originalSkin = nil
+
+local function getSkinList()
+    local out = {}
+    pcall(function()
+        local mod = findModule("CosmeticLibrary")
+        if not mod then return end
+        local lib = require(mod)
+        local cos = lib and (lib.Cosmetics or lib.cosmetics) or lib
+        if type(cos) ~= "table" then return end
+        for name, data in pairs(cos) do
+            if type(name) == "string" and type(data) == "table" then
+                local img = data.Image or data.ImageHighResolution
+                if img then table.insert(out, { name = name, image = img }) end
+            end
+        end
+    end)
+    table.sort(out, function(a, b) return a.name < b.name end)
+    return out
+end
+
+-- 本地换皮：重建手持 viewmodel（照 Kicia 的做法，只改自己画面）
+local function applySkin(skinName)
+    if not skinName then return "没有皮肤名" end
+    local identity
+    pcall(function() if getthreadidentity then identity = getthreadidentity() end end)
+    local ok, res = pcall(function()
+        if setthreadidentity then pcall(setthreadidentity, 2) end
+        local FC  = findModule("FighterController")
+        local RC  = findModule("ReplicatedClass")
+        local CVM = findModule("ClientViewModel")
+        if not (FC and RC and CVM) then return "缺少游戏模块" end
+        FC, RC, CVM = require(FC), require(RC), require(CVM)
+        local fighter = FC:GetFighter(LP)
+        if not fighter or not fighter.Items then return "拿不到 fighter" end
+        local item = fighter.EquippedItem
+        if not item then
+            for _, it in pairs(fighter.Items) do item = it break end
+        end
+        if not item then return "没有手持武器" end
+        local old = item.ViewModel
+        if not (type(old) == "table" and old._serial) then return "viewmodel 结构变了" end
+        local serial = table.clone(old._serial)
+        local dataKey = RC:ToEnum("Data")
+        local data = table.clone(serial.Data or serial[dataKey] or {})
+        serial[dataKey] = data
+        serial.Data = nil
+        data[RC:ToEnum("Skin")] = { Name = skinName }
+        data[RC:ToEnum("Name")] = skinName
+        data.Skin = nil
+        data.Name = nil
+        local built, nvm = pcall(function() return CVM.new(serial, item) end)
+        if not built or type(nvm) ~= "table" then return "构建 viewmodel 失败" end
+        if old.Unequip then pcall(old.Unequip, old) end
+        item.ViewModel = nvm
+        if nvm.Equip then pcall(nvm.Equip, nvm, true) end
+        if old.Destroy then pcall(old.Destroy, old) end
+        return true
+    end)
+    if setthreadidentity and identity then pcall(setthreadidentity, identity) end
+    if ok and res == true then return "✅ 已换成 " .. skinName end
+    return "❌ " .. tostring(res)
+end
+
+local function buildSkinPanel()
+    if skinPanel then return end
+
+    skinPanel = Instance.new("Frame")
+    skinPanel.Size = UDim2.fromOffset(268, 392)
+    skinPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+    skinPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    skinPanel.BackgroundColor3 = Color3.fromRGB(12, 13, 19)
+    skinPanel.BackgroundTransparency = 0.06
+    skinPanel.BorderSizePixel = 0
+    skinPanel.Visible = false
+    skinPanel.ZIndex = 4000
+    skinPanel.Parent = gui
+    do
+        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = skinPanel
+        local st = Instance.new("UIStroke"); st.Color = Color3.fromRGB(180, 110, 255); st.Transparency = 0.5; st.Parent = skinPanel
+    end
+
+    local head = Instance.new("TextButton")
+    head.Size = UDim2.new(1, 0, 0, 30)
+    head.BackgroundColor3 = Color3.fromRGB(26, 22, 38)
+    head.BorderSizePixel = 0
+    head.Font = Enum.Font.GothamBold
+    head.TextSize = 13
+    head.Text = "  SKINCHANGER   ×"
+    head.TextXAlignment = Enum.TextXAlignment.Left
+    head.TextColor3 = Color3.fromRGB(190, 140, 255)
+    head.AutoButtonColor = false
+    head.ZIndex = 4001
+    head.Parent = skinPanel
+    do
+        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = head
+    end
+    head.MouseButton1Click:Connect(function() skinPanel.Visible = false end)
+
+    skinSearch = Instance.new("TextBox")
+    skinSearch.Size = UDim2.new(1, -12, 0, 28)
+    skinSearch.Position = UDim2.fromOffset(6, 34)
+    skinSearch.BackgroundColor3 = Color3.fromRGB(30, 32, 44)
+    skinSearch.BorderSizePixel = 0
+    skinSearch.PlaceholderText = "搜索皮肤…"
+    skinSearch.Text = ""
+    skinSearch.TextSize = 13
+    skinSearch.TextColor3 = Color3.fromRGB(235, 235, 240)
+    skinSearch.ClearTextOnFocus = false
+    skinSearch.ZIndex = 4001
+    skinSearch.Parent = skinPanel
+    do
+        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = skinSearch
+    end
+
+    skinList = Instance.new("ScrollingFrame")
+    skinList.Size = UDim2.new(1, -12, 1, -112)
+    skinList.Position = UDim2.fromOffset(6, 66)
+    skinList.BackgroundTransparency = 1
+    skinList.BorderSizePixel = 0
+    skinList.ScrollBarThickness = 3
+    skinList.ScrollBarImageColor3 = Color3.fromRGB(190, 140, 255)
+    skinList.CanvasSize = UDim2.fromOffset(0, 0)
+    skinList.ZIndex = 4001
+    skinList.Parent = skinPanel
+    pcall(function()
+        skinList.ScrollingDirection = Enum.ScrollingDirection.Y
+        skinList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    end)
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 2)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = skinList
+
+    skinStatus = Instance.new("TextLabel")
+    skinStatus.Size = UDim2.new(1, -12, 0, 40)
+    skinStatus.AnchorPoint = Vector2.new(0, 1)
+    skinStatus.Position = UDim2.new(0, 6, 1, -6)
+    skinStatus.BackgroundTransparency = 1
+    skinStatus.Font = Enum.Font.Code
+    skinStatus.TextSize = 11
+    skinStatus.TextXAlignment = Enum.TextXAlignment.Left
+    skinStatus.TextYAlignment = Enum.TextYAlignment.Top
+    skinStatus.TextColor3 = Color3.fromRGB(170, 175, 190)
+    skinStatus.Text = "  点一项试试"
+    skinStatus.ZIndex = 4001
+    skinStatus.Parent = skinPanel
+
+    skinSearch:GetPropertyChangedSignal("Text"):Connect(function()
+        if fillSkinList and #skinCache > 0 then fillSkinList(skinSearch.Text) end
+    end)
+end
+
+function fillSkinList(filter)
+    if not skinList then return end
+    for _, ch in ipairs(skinList:GetChildren()) do
+        if ch:IsA("TextButton") then ch:Destroy() end
+    end
+    filter = string.lower(filter or "")
+    local n = 0
+    for i, sk in ipairs(skinCache) do
+        if filter == "" or string.find(string.lower(sk.name), filter, 1, true) then
+            n = n + 1
+            local b = Instance.new("TextButton")
+            b.Size = UDim2.new(1, -6, 0, 30)
+            b.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+            b.BorderSizePixel = 0
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 13
+            b.Text = "  " .. sk.name
+            b.TextXAlignment = Enum.TextXAlignment.Left
+            b.TextColor3 = Color3.fromRGB(230, 230, 240)
+            b.LayoutOrder = i
+            b.ZIndex = 4002
+            b.Parent = skinList
+            local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = b
+            b.MouseButton1Click:Connect(function()
+                local _, root = myChar()
+                if originalSkin == nil then originalSkin = sk.name end
+                skinStatus.Text = "  " .. applySkin(sk.name)
+            end)
+        end
+    end
+    skinStatus.Text = string.format("  共 %d 个皮肤（显示 %d）", #skinCache, n)
+end
+
+function openSkincare()
+    buildSkinPanel()
+    skinPanel.Visible = not skinPanel.Visible
+    if not skinPanel.Visible then return end
+    if #skinCache == 0 then
+        skinStatus.Text = "  正在读皮肤列表…"
+        task.spawn(function()
+            skinCache = getSkinList()
+            if #skinCache == 0 then
+                skinStatus.Text = "  没读到皮肤（要先进一局，或者游戏改了模块名）"
+            else
+                fillSkinList(skinSearch and skinSearch.Text or "")
+            end
+        end)
+    else
+        fillSkinList(skinSearch and skinSearch.Text or "")
+    end
+end
+
 --═══════════ 12. 收尾 ═══════════
 Players.PlayerRemoving:Connect(drop)
 LP.CharacterAdded:Connect(function()
@@ -1225,4 +1536,4 @@ pcall(function()
     end
 end)
 
-print("[Rivals Hub v7.4] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
+print("[Rivals Hub v8.1] 已加载 · 左上角 R 打开面板 · 右侧 TP 一点就贴")
