@@ -471,9 +471,9 @@ task.spawn(function()
             rageFire()
             task.wait(CFG.rageDelay)
         else
-            if repRootActive then
-                local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-                if myRoot then setRepRoot(myRoot, nil) end
+            if repRootActive and LP.Character then
+                local r0 = LP.Character:FindFirstChild("HumanoidRootPart")
+                if r0 then setRepRoot(r0, nil) end
                 repRootActive = false
             end
             rageStatus = "待命"
@@ -481,6 +481,87 @@ task.spawn(function()
         end
     end
 end)
+
+--═══════════ UI ═══════════
+pcall(function()
+    local host = (gethui and gethui()) or game:GetService("CoreGui")
+    for _, v in ipairs(host:GetChildren()) do
+        if v.Name == "RageLiteUI" then v:Destroy() end
+    end
+end)
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "RageLiteUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 2147483000
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+local okP = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+if not okP then gui.Parent = LP:WaitForChild("PlayerGui") end
+
+local function makeBtn(key, text, color, side)
+    side = side or "right"
+    local b = Instance.new("TextButton")
+    if side == "left" then
+        b.AnchorPoint = Vector2.new(0, 0.5)
+        b.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+    else
+        b.AnchorPoint = Vector2.new(1, 0.5)
+        b.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+    end
+    b.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
+    b.BackgroundColor3 = color
+    b.BackgroundTransparency = 0.72
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.Text = text
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.ZIndex = 3000
+    b.Parent = gui
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = b
+    local s2 = Instance.new("UIStroke"); s2.Color = color; s2.Transparency = 0.45; s2.Parent = b
+    return b
+end
+
+local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
+local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
+local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
+local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
+local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80), "left")
+local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
+local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
+
+local function applyLayout()
+    local function set(btn, key, side)
+        if not btn then return end
+        btn.Size = UDim2.fromOffset(CFG[key .. "Size"], CFG[key .. "Size"])
+        if side == "left" then
+            btn.Position = UDim2.new(0, CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+        else
+            btn.Position = UDim2.new(1, -CFG[key .. "X"], 0.5, CFG[key .. "Y"])
+        end
+    end
+    set(btnTeam, "team")
+    set(btnTp, "tp")
+    set(btnAim, "aim")
+    set(btnRage, "rage")
+    set(btnFire, "fire", "left")
+    set(btnSpread, "spread", "left")
+    set(btnSilent, "silent", "left")
+end
+
+local function paint(btn, on, base)
+    btn.BackgroundTransparency = on and 0.22 or 0.72
+    btn.Text = on and (base .. " ●") or base
+end
+
+-- TEAM：亮 = 排掉队友；暗（ALL）= 连队友一起打
+local function paintTeam()
+    if not btnTeam then return end
+    btnTeam.BackgroundTransparency = CFG.teamFilter and 0.22 or 0.72
+    btnTeam.Text = CFG.teamFilter and "TEAM" or "ALL"
+end
 
 --═══════════ 自动开火（准星贴人就替玩家扣扳机） ═══════════
 local fireNext = 0
@@ -496,7 +577,7 @@ local function autoFireTick()
     local vp = cam.ViewportSize
     local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
 
-    -- FIRE 是独立开关，只看准星窗口，和 RAGE 无关
+    -- RAGE 开着 = 复制根已经挂到目标身上，这时不看准星，直接打最近的那个
     local best, bestD = nil, CFG.fireWindow
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP and not isAlly(p) then
@@ -992,34 +1073,28 @@ function refreshPlayerList()
             local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(0, 5); cc.Parent = b
             b.MouseButton1Click:Connect(function()
                 local key = tostring(p.UserId)
-                if CFG.allyIds[key] then
-                    CFG.allyIds[key] = nil
-                else
-                    CFG.allyIds[key] = true
-                end
+                if CFG.allyIds[key] then CFG.allyIds[key] = nil else CFG.allyIds[key] = true end
                 saveCfg()
                 refreshPlayerList()
             end)
         end
     end
     if n == 0 then
-        local b = Instance.new("TextLabel")
-        b.Size = UDim2.new(1, 0, 0, 24)
-        b.BackgroundTransparency = 1
-        b.Font = Enum.Font.Gotham
-        b.TextSize = 11
-        b.Text = "  房间里只有你自己"
-        b.TextXAlignment = Enum.TextXAlignment.Left
-        b.TextColor3 = Color3.fromRGB(150, 150, 160)
-        b.Parent = playerBox
+        local lb = Instance.new("TextLabel")
+        lb.Size = UDim2.new(1, 0, 0, 24)
+        lb.BackgroundTransparency = 1
+        lb.Font = Enum.Font.Gotham
+        lb.TextSize = 11
+        lb.Text = "  房间里只有你自己"
+        lb.TextXAlignment = Enum.TextXAlignment.Left
+        lb.TextColor3 = Color3.fromRGB(150, 150, 160)
+        lb.Parent = playerBox
     end
 end
 
 task.spawn(function()
     while task.wait(1.5) do
-        if layoutPanel and layoutPanel.Visible then
-            pcall(refreshPlayerList)
-        end
+        if layoutPanel and layoutPanel.Visible then pcall(refreshPlayerList) end
     end
 end)
 
