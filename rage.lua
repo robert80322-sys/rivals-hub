@@ -28,6 +28,8 @@ local CFG = {
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
     tpMaxDist = 120,     -- 传送距离上限（studs），大概一个竞技场的跨度
+    teleportReach = 1.0, -- 站位到目标的水平距离
+    attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
     -- 三个键的位置：X = 距右边缘像素，Y = 相对屏幕垂直中心
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
@@ -255,6 +257,19 @@ local function equippedItem()
     return ok and item or nil
 end
 
+-- 提升权限后写 CFrame（PivotTo 会被墙体碰撞拦，直接写 CFrame 不会）
+local function setCF(inst, cf)
+    if not inst then return false end
+    local id
+    if getthreadidentity and setthreadidentity then
+        pcall(function() id = getthreadidentity() end)
+        pcall(setthreadidentity, 8)
+    end
+    local ok = pcall(function() inst.CFrame = cf end)
+    if id and setthreadidentity then pcall(setthreadidentity, id) end
+    return ok
+end
+
 -- 穿墙的核心：把角色的「物理复制根」指到目标命中盒上。
 -- 角色本身一步不动，但服务端算射线和距离时用的是这个根 —— 所以墙后的目标也能打到。
 -- 名字用 PhysicsRepRootRef（新），失败再退回 PhysicsRepRootPart（旧）。
@@ -320,23 +335,28 @@ local function rageFire()
     local part = head or body
     if not part then rageStatus = "目标没有命中盒" return false end
 
-    -- 穿墙：把复制根挂到目标命中盒上（人不动，服务器认为你贴着他）
+    -- 照 Kicia 的 HitscanStrategy：站位 = 目标位置 + 远离方向 × reach + 腰高
     local myChar0 = LP.Character
     local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
-    local tRoot0 = ch:FindFirstChild("HumanoidRootPart")
-    local canTP = (myRoot0 ~= nil and tRoot0 ~= nil)
-        and (tRoot0.Position - myRoot0.Position).Magnitude <= CFG.tpMaxDist
+    local myPos = myRoot0 and myRoot0.Position or workspace.CurrentCamera.CFrame.Position
+    local targetPos = part.Position
 
+    local dir = myPos - targetPos
+    dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
+    local standPos = targetPos + dir * CFG.teleportReach + Vector3.new(0, CFG.attackHeight, 0)
+
+    local canTP = myRoot0 ~= nil and (targetPos - myPos).Magnitude <= CFG.tpMaxDist
     local wallOK = false
+
     if myRoot0 then
+        -- 1) 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
         wallOK = setRepRoot(myRoot0, part)
         repRootActive = wallOK
-    end
-
-    -- 距离够近的话再真的贴过去（双重保险）
-    if canTP and now >= rageTPNext then
-        rageTeleport(ch)
-        rageTPNext = now + 0.11
+        -- 2) 距离够的话真把身体也挪过去（写 CFrame，不走 PivotTo，不会被墙挡）
+        if canTP and now >= rageTPNext then
+            setCF(myRoot0, CFrame.new(standPos, targetPos))
+            rageTPNext = now + 0.11
+        end
     end
 
     local item = equippedItem()
@@ -346,10 +366,8 @@ local function rageFire()
 
     rageNext = now + CFG.rageDelay
 
-    local myChar = LP.Character
-    local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
-    local origin = myRoot and myRoot.Position or workspace.CurrentCamera.CFrame.Position
-    local aim = CFrame.new(origin, part.Position)
+    -- 关键：包里的起点用 standPos（目标身边），不是自己实际站在哪 —— 所以墙挡着也照样命中
+    local aim = CFrame.new(standPos, targetPos)
     local shot = {
         [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
         [utf8.char(1)] = RIVALS.util:EncodeCFrame(aim),

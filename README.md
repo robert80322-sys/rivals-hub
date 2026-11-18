@@ -47,7 +47,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rival
 | **TEAM**（绿） | **队友识别开关**：亮着 = TP/AIM/RAGE 三个键都排掉队友、不 TP 到队友身上；按一下变 `ALL` = 谁都打 |
 | **TP**（青） | **按住**：每 0.12 秒 `PivotTo` 到最近敌人身边 **1 米**，松手即停。超过 `tpMaxDist`（默认 120 studs，约一个竞技场跨度）不传，状态栏会写「目标超出 TP 距离」 |
 | **AIM**（红） | **点一下开、再点关**：暴力锁头，**360° 无死角**（不做 FOV 过滤），射线判断遮挡，头被墙挡住自动改打身体 |
-| **RAGE**（橙） | **点一下开、再点关**。**穿墙**靠 `sethiddenproperty(root, "PhysicsRepRootRef", 目标命中盒)`：人一步不动，但服务端的射线/距离都按目标位置算，墙后照样命中。距离够近时再额外贴到身后 2 米双保险；关掉时恢复复制根并回原位 |
+| **RAGE**（橙） | **点一下开、再点关**。穿墙照 Kicia 的 HitscanStrategy 做：**包里的起点不用自己站的位置，改用 `standPos`（目标位置 + 远离方向 × reach + 腰高）**，配合 `sethiddenproperty(root,"PhysicsRepRootRef",目标命中盒)` 让服务端认可这个位置。身体走 `setthreadidentity(8)` 直接写 CFrame，不走 `PivotTo`，所以不会被墙挡；关掉时恢复复制根并回原位 |
 
 左边有个 **⚙** 按钮，点开是「按键位置」面板：四个键各自的 **右边距 / 垂直 / 大小**，`+/-` 调完立刻生效，
 自动存到执行器的 `RivalsRageCfg.json`，下次加载自动读回。不用拖，手机上拖动会跟游戏手势打架。
