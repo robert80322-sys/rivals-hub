@@ -510,33 +510,59 @@ RunService:BindToRenderStep("RageLiteSilent", Enum.RenderPriority.Camera.Value +
 end)
 
 --═══════════ 无扩散 ═══════════
-local spreadFields = { "Spread", "HipSpread", "AimSpread", "MinSpread", "MaxSpread", "Recoil" }
+-- 上一版每 0.2 秒对 6 个字段调一次 item:Set()，那个 Set 不是简单赋值，
+-- 会触发武器重算/同步，把射速和弹道一起搞乱，所以打不中人。
+-- 现在只在开关切换时动一次，只碰 Spread / AimSpread，直接改表，并在关掉时精确还原。
+local spreadBackup = nil
+local spreadState = "原值"
 
-local function killSpread()
+local function applySpread()
     local item = equippedItem()
-    if not item then return false end
-    local touched = false
-    pcall(function()
-        if type(item.Info) == "table" then
-            for _, f in ipairs(spreadFields) do
-                if item.Info[f] ~= nil then item.Info[f] = 0; touched = true end
+    local info = item and item.Info
+    if type(info) ~= "table" then
+        spreadState = "拿不到武器 Info"
+        return
+    end
+    local hasField = (type(info.Spread) == "number") or (type(info.AimSpread) == "number")
+    if not hasField then
+        spreadState = "这把武器没有 Spread 字段"
+        return
+    end
+    if CFG.spreadOn then
+        if spreadBackup == nil or spreadBackup.item ~= item then
+            spreadBackup = {
+                item = item,
+                spread = info.Spread,
+                aim    = info.AimSpread,
+            }
+        end
+        if type(info.Spread) == "number"    then info.Spread = 0 end
+        if type(info.AimSpread) == "number" then info.AimSpread = 0 end
+        spreadState = "已清零"
+    else
+        if spreadBackup and spreadBackup.item == item then
+            local i2 = spreadBackup.item.Info
+            if type(i2) == "table" then
+                if spreadBackup.spread ~= nil then i2.Spread = spreadBackup.spread end
+                if spreadBackup.aim    ~= nil then i2.AimSpread = spreadBackup.aim end
             end
         end
-    end)
-    pcall(function()
-        if item.Set then
-            for _, f in ipairs(spreadFields) do
-                pcall(function() item:Set(f, 0) end)
-            end
-            touched = true
-        end
-    end)
-    return touched
+        spreadBackup = nil
+        spreadState = "原值"
+    end
 end
 
+-- 换枪后重新套用（每把武器的 Info 是独立表）
 task.spawn(function()
-    while task.wait(0.2) do
-        if CFG.spreadOn then killSpread() end
+    local lastItem = nil
+    while task.wait(0.5) do
+        if CFG.spreadOn then
+            local it = equippedItem()
+            if it ~= lastItem then
+                lastItem = it
+                applySpread()
+            end
+        end
     end
 end)
 
@@ -554,6 +580,7 @@ btnSpread.MouseButton1Click:Connect(function()
     CFG.spreadOn = not CFG.spreadOn
     btnSpread.BackgroundTransparency = CFG.spreadOn and 0.22 or 0.72
     btnSpread.Text = CFG.spreadOn and "SPREAD ●" or "SPREAD"
+    applySpread()
     saveCfg()
 end)
 btnSpread.BackgroundTransparency = CFG.spreadOn and 0.22 or 0.72
@@ -819,7 +846,7 @@ task.spawn(function()
             aimOn and "●" or "○",
             rageOn and "●" or "○",
             CFG.silentOn and "●" or "○",
-            CFG.spreadOn and "●" or "○",
+            (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies) or "全打") .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
             okTxt, tpHold and tpStatus or rageStatus)
     end
