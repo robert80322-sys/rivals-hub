@@ -43,7 +43,7 @@ local CFG = {
     allyIds    = {},     -- 手动标记为队友的 UserId
     _cfgVer    = 0,      -- 配置结构版本，用来做迁移
     esp        = true,   -- ESP 透视
-    wallbangMode = "desync", -- desync=闪过去打(能中但像TP) / stand=原地不发位移(真穿墙,靠服务端信 part)
+    wallbangMode = "stand",  -- stand=原地打(人不位移,视角不动) / desync=闪过去打(会像TP)
     autoFire   = false,  -- 自动开火（无按钮，保留配置）
     fireWindow = 70,     -- 准星多少像素内有目标才开火
     fireX = 12, fireY = -168, fireSize = 92,
@@ -86,7 +86,7 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 9
+local CFG_VER = 10
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
@@ -94,7 +94,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 200
         CFG.esp = true
-        CFG.wallbangMode = "desync"
+        CFG.wallbangMode = "stand"
         CFG.rageDelay = 0.09
         CFG.repRootHoldDisp = 80
         CFG.flashTP = false
@@ -1496,7 +1496,7 @@ task.spawn(function()
             CFG.silentOn and "●" or "○",
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies .. " [" .. teamInfo() .. "]") or "全打")
-                .. " · 传送≤" .. math.floor(CFG.tpMaxDist),
+                .. " · " .. (CFG.wallbangMode == "stand" and "原地" or "闪身"),
             okTxt, tpHold and tpStatus
                 or (CFG.autoFire and (fireStatus .. " | " .. rageStatus) or rageStatus))
     end
