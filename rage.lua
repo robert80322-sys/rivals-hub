@@ -33,7 +33,7 @@ local CFG = {
     repRoot   = true,    -- 挂物理复制根（真穿墙）
     repRootMaxDist = 100,-- 只有目标在这个距离内才挂，太远挂会被拉出地图
     repRootHoldDisp = 120, -- 复制根挂多久再摘（毫秒）
-    flashTP   = true,    -- 闪身：打之前人先闪到目标旁边 0.1 秒，打完闪回原位
+    flashTP   = false,   -- 闪身：先过去再打。默认关，之前它会把人送到地图外
     flashRange = 150,    -- 闪身最大距离
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
@@ -92,7 +92,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 100
         CFG.repRootHoldDisp = 120
-        CFG.flashTP = true
+        CFG.flashTP = false
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
         CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
@@ -553,8 +553,13 @@ local function rageFire()
         dbg("abort: ObjectID = nil, item=" .. tostring(item))
         return false
     end
-    dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)", p.Name,
-        (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
+    dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)",
+        p.Name, (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
+    dbg(string.format("  part=%s (%s)  角色里 HitboxHead=%s HitboxBody=%s Head=%s",
+        part.Name, part.ClassName,
+        tostring(ch:FindFirstChild("HitboxHead") ~= nil),
+        tostring(ch:FindFirstChild("HitboxBody") ~= nil),
+        tostring(ch:FindFirstChild("Head") ~= nil)))
 
     -- 按武器真实冷却发，发太快服务端会把包丢掉（30 发中 2 发就是这么来的）
     local cd = CFG.rageDelay
