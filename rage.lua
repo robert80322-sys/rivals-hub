@@ -554,11 +554,13 @@ local function rageFire()
 
     local standMode = (CFG.wallbangMode == "stand")
     if standMode then
-        -- 原地穿墙：人一步不动，只把包里的射线写成"从枪口指向目标头"。
-        -- 服务端如果信 shot 里的 part 就直接判中；如果它自己重新算射线，那这发就丢。
-        desyncCF = CFrame.lookAt(myRoot.Position + Vector3.new(0, 1.5, 0), head.Position)
-        dbg(string.format("  stand模式：原地打 (%.0f,%.0f,%.0f) → %s 距离%.0f",
-            myRoot.Position.X, myRoot.Position.Y, myRoot.Position.Z, p.Name, dist))
+        -- 人一步不动，但包里的射线起点写到目标旁边。
+        -- 服务端自己算射线的话，只要它认这个起点，子弹就等于从目标身边射出 → 穿墙。
+        -- 如果它还校验"起点必须离角色本人很近"，那这发会被丢，没有别的办法了。
+        desyncCF = CFrame.lookAt(standPos, head.Position)
+        dbg(string.format("  stand模式：人站(%.0f,%.0f,%.0f) 包里起点写(%.0f,%.0f,%.0f) → %s 距离%.0f",
+            myRoot.Position.X, myRoot.Position.Y, myRoot.Position.Z,
+            standPos.X, standPos.Y, standPos.Z, p.Name, dist))
     end
 
     if not standMode then
