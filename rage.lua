@@ -521,10 +521,12 @@ local function rageFire()
         return false
     end
 
-    -- 目标坐标异常（掉进虚空 / 在地图外）一律不碰，否则闪过去就是摔死
-    if targetPos.Y < -150 or targetPos.Y > 800 then
-        rageStatus = "目标在地图外，跳过"
-        dbg(string.format("skip: 目标 Y=%.0f 异常", targetPos.Y))
+    -- 只挡真正坏掉的坐标（NaN / 离谱到 1e5）。之前卡 -150~800，Rivals 的 hitbox
+    -- 偏移本来就超出这个范围，导致一进 100 就被判"地图外"，RAGE 直接罢工。
+    if targetPos.X ~= targetPos.X or targetPos.Y ~= targetPos.Y or targetPos.Z ~= targetPos.Z
+    or math.abs(targetPos.Y) > 1e5 then
+        rageStatus = "目标坐标异常"
+        dbg(string.format("skip: 目标坐标异常 %s", tostring(targetPos)))
         return false
     end
 
@@ -555,8 +557,8 @@ local function rageFire()
     end
     dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)",
         p.Name, (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
-    dbg(string.format("  part=%s (%s)  角色里 HitboxHead=%s HitboxBody=%s Head=%s",
-        part.Name, part.ClassName,
+    dbg(string.format("  part=%s (%s) hitboxY=%.0f  角色里 HitboxHead=%s HitboxBody=%s Head=%s",
+        part.Name, part.ClassName, part.Position.Y,
         tostring(ch:FindFirstChild("HitboxHead") ~= nil),
         tostring(ch:FindFirstChild("HitboxBody") ~= nil),
         tostring(ch:FindFirstChild("Head") ~= nil)))
