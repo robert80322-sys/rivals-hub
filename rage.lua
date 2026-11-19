@@ -499,7 +499,10 @@ local function rageFire()
     local myChar0 = LP.Character
     local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
     local myPos = myRoot0 and myRoot0.Position or workspace.CurrentCamera.CFrame.Position
-    local targetPos = part.Position
+    local tHRP = ch:FindFirstChild("HumanoidRootPart")
+    -- 站位/距离一律按脚底(HRP)算；hitbox 的 Y 可能离地面很远，拿它算站位会把人送到半空
+    local targetPos = (tHRP and tHRP.Position) or part.Position
+    local aimPos    = part.Position
     -- 目标坐标异常（在虚空里/已死亡）就别算站位了，否则包里的 CFrame 会炸
     if targetPos ~= targetPos or targetPos.Magnitude > 1e6 then
         rageStatus = "目标坐标异常"
@@ -575,7 +578,7 @@ local function rageFire()
     rageNext = now + math.max(cd, 0.06)
 
     -- 关键：包里的起点用 standPos（目标身边），不是自己实际站在哪 —— 所以墙挡着也照样命中
-    local aim = CFrame.new(standPos, targetPos)
+    local aim = CFrame.new(standPos, aimPos)
     local shot = {
         [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
         [utf8.char(1)] = RIVALS.util:EncodeCFrame(aim),
@@ -633,6 +636,26 @@ task.spawn(function()
         end
     end
 end)
+
+--═══════════ 死亡自动关 RAGE ═══════════
+local function watchDeath(ch)
+    local hum = ch and ch:WaitForChild("Humanoid", 10)
+    if hum then
+        hum.Died:Connect(function()
+            if rageOn then
+                rageOn = false
+                rageStatus = "死后自动关（避免连送）"
+                dbg("RAGE 自动关闭：角色死亡")
+                if btnRage then
+                    btnRage.BackgroundTransparency = 0.72
+                    btnRage.Text = "RAGE"
+                end
+            end
+        end)
+    end
+end
+if LP.Character then pcall(watchDeath, LP.Character) end
+LP.CharacterAdded:Connect(function(ch) pcall(watchDeath, ch) end)
 
 --═══════════ UI ═══════════
 pcall(function()
