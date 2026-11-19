@@ -43,6 +43,7 @@ local CFG = {
     allyIds    = {},     -- 手动标记为队友的 UserId
     _cfgVer    = 0,      -- 配置结构版本，用来做迁移
     esp        = true,   -- ESP 透视
+    wallbangMode = "desync", -- desync=闪过去打(能中但像TP) / stand=原地不发位移(真穿墙,靠服务端信 part)
     autoFire   = false,  -- 自动开火（无按钮，保留配置）
     fireWindow = 70,     -- 准星多少像素内有目标才开火
     fireX = 12, fireY = -168, fireSize = 92,
@@ -93,6 +94,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 200
         CFG.esp = true
+        CFG.wallbangMode = "desync"
         CFG.rageDelay = 0.03
         CFG.repRootHoldDisp = 80
         CFG.flashTP = false
@@ -527,7 +529,7 @@ local function rageFire()
     local tPos   = root.Position
     local dist   = (tPos - myPos).Magnitude
 
-    if dist > CFG.repRootMaxDist then
+    if CFG.wallbangMode ~= "stand" and dist > CFG.repRootMaxDist then
         rageStatus = string.format("太远(%.0f>%d)", dist, CFG.repRootMaxDist)
         return false
     end
@@ -549,19 +551,30 @@ local function rageFire()
     local oldCF   = myRoot.CFrame
     local oldVel  = myRoot.Velocity
     local oldRot  = myRoot.RotVelocity
+
+    local standMode = (CFG.wallbangMode == "stand")
+    if standMode then
+        -- 原地穿墙：人一步不动，只把包里的射线写成"从枪口指向目标头"。
+        -- 服务端如果信 shot 里的 part 就直接判中；如果它自己重新算射线，那这发就丢。
+        desyncCF = CFrame.lookAt(myRoot.Position + Vector3.new(0, 1.5, 0), head.Position)
+        dbg(string.format("  stand模式：原地打 (%.0f,%.0f,%.0f) → %s 距离%.0f",
+            myRoot.Position.X, myRoot.Position.Y, myRoot.Position.Z, p.Name, dist))
+    end
+
     myRoot.CFrame = desyncCF
     -- 之前用 BindToRenderStep("__rage_restore") 恢复，30ms 发一次会同名覆盖，
     -- 被覆盖掉的那次永远不会恢复 → 人就留在天上。改成 delay(0) 下一帧无条件执行。
-    task.delay(0.04, function()
-        if myRoot and myRoot.Parent then
+    if not standMode then
+        task.delay(0.04, function()
+            if not (myRoot and myRoot.Parent) then return end
             pcall(function()
                 myRoot.CFrame = oldCF
                 myRoot.Velocity = oldVel
                 myRoot.RotVelocity = oldRot
                 dbg("desync 已回原位")
             end)
-        end
-    end)
+        end)
+    end
 
     --════ 包结构（照开源实现，和之前猜的不一样）════
     local aimCF = CFrame.lookAt(desyncCF.Position, head.Position)
@@ -1322,6 +1335,11 @@ makeStepper(scroll, "SPREAD 边距", "spreadX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SPREAD 垂直", "spreadY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SPREAD 大小", "spreadSize", 6, 40, 160, nextOrd())
 header("FIRE 键（自动开火）")
+makeButtonRow(scroll, "打法：闪身 / 原地穿墙（点我切）", function()
+    CFG.wallbangMode = (CFG.wallbangMode == "desync") and "stand" or "desync"
+    saveCfg()
+    rageStatus = CFG.wallbangMode == "stand" and "原地穿墙（人不动）" or "闪身（贴过去打）"
+end, nextOrd())
 makeButtonRow(scroll, "ESP：点我切换", function()
     CFG.esp = not CFG.esp
     btnEsp.BackgroundTransparency = CFG.esp and 0.22 or 0.72
