@@ -32,7 +32,9 @@ local CFG = {
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
     repRootMaxDist = 100,-- 只有目标在这个距离内才挂，太远挂会被拉出地图
-    repRootHoldDisp = 120, -- 复制根挂多久再摘（毫秒）；太短服务端还没处理包，太长人被拽走
+    repRootHoldDisp = 120, -- 复制根挂多久再摘（毫秒）
+    flashTP   = true,    -- 闪身：打之前人先闪到目标旁边 0.1 秒，打完闪回原位
+    flashRange = 150,    -- 闪身最大距离
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -90,6 +92,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 100
         CFG.repRootHoldDisp = 120
+        CFG.flashTP = true
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
         CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
@@ -364,6 +367,7 @@ local rageStatus = "待命"
 local rageTPNext = 0
 local rageHome   = nil      -- 按下去之前站在哪
 local repRootActive = false
+local homeCF = nil
 local rageBack   = true     -- 松手回原位
 
 local function equippedItem()
@@ -517,9 +521,21 @@ local function rageFire()
         return false
     end
 
+    -- 目标坐标异常（掉进虚空 / 在地图外）一律不碰，否则闪过去就是摔死
+    if targetPos.Y < -150 or targetPos.Y > 800 then
+        rageStatus = "目标在地图外，跳过"
+        dbg(string.format("skip: 目标 Y=%.0f 异常", targetPos.Y))
+        return false
+    end
+
     if myRoot0 and CFG.repRoot and distToTarget <= CFG.repRootMaxDist then
-        -- 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
-        -- 注意：只有近距离才敢挂，远了服务端会把你整只拉过去 —— 那就是"传到地图外摔死"
+        -- 关键顺序（Kicia 也是这个顺序）：先让身体到目标旁边，再挂复制根。
+        -- 人和根位置一致，物理就不会撕扯，也就不会被拽出地图；
+        -- 反过来（人在原地、根在目标身上）就会出现"莫名其妙传出去摔死"。
+        if CFG.flashTP and distToTarget <= CFG.flashRange then
+            homeCF = myRoot0.CFrame
+            setCF(myRoot0, CFrame.new(standPos, targetPos))
+        end
         wallOK = setRepRoot(myRoot0, part)
         repRootActive = wallOK
         -- 2) 人一步都不动：只让服务端认为你在那边，角色留在原地
@@ -571,12 +587,13 @@ local function rageFire()
     -- 0.08 秒是这两件事的折中。
     if wallOK and myRoot0 then
         -- 挂的这段时间把根锚住：服务端同步位置时物理不会真的把人拽走
-        pcall(function() myRoot0.Anchored = true end)
         task.delay(math.clamp(CFG.repRootHoldDisp / 1000, 0.03, 0.6), function()
             local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
             if r then
                 pcall(function() setRepRoot(r, nil) end)
-                pcall(function() r.Anchored = false end)
+                if CFG.flashTP and homeCF then
+                    pcall(function() setCF(r, homeCF) end)   -- 闪回原位
+                end
             end
         end)
     end
@@ -1152,6 +1169,11 @@ makeButtonRow(scroll, "穿墙开/关（默认关·会被拉走）", function()
 end, nextOrd())
 makeStepper(scroll, "穿墙最大距离", "repRootMaxDist", 10, 10, 500, nextOrd())
 makeStepper(scroll, "穿墙挂载(毫秒)", "repRootHoldDisp", 20, 30, 600, nextOrd())
+makeButtonRow(scroll, "闪身打/原地打（点我切）", function()
+    CFG.flashTP = not CFG.flashTP
+    saveCfg()
+    rageStatus = CFG.flashTP and "闪身：先过去再打，打完回原位" or "原地：人不走，穿不动墙"
+end, nextOrd())
 header("TEAM 键（队友识别）")
 makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
