@@ -276,6 +276,14 @@ getgenv().RageLiteAlly = function(userId, on)
     saveCfg()
 end
 
+-- 大厅里 TeamID / EnvironmentID 都是空串，只有进了对局才有值。
+-- 大厅里跑 RAGE 会把角色 desync 到大厅边界外，而且拉不回来。
+local function inMatch()
+    local env  = LP:GetAttribute("EnvironmentID")
+    local team = LP:GetAttribute("TeamID")
+    return (type(env) == "string" and env ~= "") or (type(team) == "string" and team ~= "")
+end
+
 local function nearestEnemy(maxD, farthest)
     maxD = maxD or CFG.maxDist
     local ch0 = LP.Character
@@ -478,6 +486,11 @@ local function rageFire()
     end
     local now = os.clock()
     if now < rageNext then return false end
+
+    if not inMatch() then
+        rageStatus = "大厅里不干活（没进对局）"
+        return false
+    end
 
     local p = nearestEnemy(CFG.maxDist)
     if not p then
@@ -715,14 +728,26 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --═══════════ 掉图保护（desync 万一还是把物理带歪，这里兜底） ═══════════
+-- 记最近一个"合理"的位置；一旦掉出去/被甩飞，直接把人拉回那儿，
+-- 比固定 Y=50 靠谱（大厅、不同地图坐标系都不一样）。
+local safeCF = nil
+
 RunService.Heartbeat:Connect(function()
     local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if root and root.Position.Y < -40 then
+    if not root then return end
+    local pos = root.Position
+    if pos.X ~= pos.X then return end
+
+    local ok = (pos.Y > -20 and pos.Y < 1200 and pos.Magnitude < 5000)
+    if ok then
+        safeCF = root.CFrame
+    elseif safeCF then
         pcall(function()
-            root.CFrame = CFrame.new(root.Position.X, 50, root.Position.Z)
+            root.CFrame = safeCF
             root.Velocity = Vector3.zero
+            root.RotVelocity = Vector3.zero
         end)
-        dbg("掉图保护触发：Y=" .. math.floor(root.Position.Y))
+        dbg(string.format("掉图保护：从 (%.0f,%.0f,%.0f) 拉回安全点", pos.X, pos.Y, pos.Z))
     end
 end)
 
