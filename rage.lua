@@ -391,7 +391,10 @@ local function equippedItem()
         local mod = findModule("FighterController")
         if not mod then return nil end
         local FC = require(mod)
-        local fighter = FC and FC.GetFighter and FC:GetFighter(LP)
+        local fighter = FC and FC.LocalFighter
+        if not fighter and FC and FC.GetFighter then
+            fighter = FC:GetFighter(LP)
+        end
         if not fighter then
             local CFmod = findModule("ClientFighter")
             if CFmod then
@@ -549,12 +552,13 @@ local function rageFire()
     myRoot.CFrame = desyncCF
     -- 之前用 BindToRenderStep("__rage_restore") 恢复，30ms 发一次会同名覆盖，
     -- 被覆盖掉的那次永远不会恢复 → 人就留在天上。改成 delay(0) 下一帧无条件执行。
-    task.delay(0, function()
+    task.delay(0.04, function()
         if myRoot and myRoot.Parent then
             pcall(function()
                 myRoot.CFrame = oldCF
                 myRoot.Velocity = oldVel
                 myRoot.RotVelocity = oldRot
+                dbg("desync 已回原位")
             end)
         end
     end)
@@ -580,9 +584,17 @@ local function rageFire()
         [C3] = RIVALS.util:EncodeCFrame(objSpaceHeadOffset), -- 目标局部空间偏移
     }
 
+    local enumVal = toEnum("StartShooting")
     local ok, err = pcall(function()
-        RIVALS.use:FireServer(objId, toEnum("StartShooting"), cameradata, nil)
+        RIVALS.use:FireServer(objId, enumVal, cameradata, nil)
     end)
+    if not ok then
+        dbg("  FireServer 抛错: " .. tostring(err))
+    end
+    dbg(string.format("  packet: objId=%s(%s,len=%d) enum=%s(%s,len=%d) item=%s",
+        tostring(objId), typeof(objId), (type(objId)=="string" and #objId or 0),
+        tostring(enumVal), typeof(enumVal), (type(enumVal)=="string" and #enumVal or 0),
+        tostring(item and item.Name)))
 
     if ok then
         rageStatus = string.format("desync打 → %s (%.0f)", p.Name, dist)
