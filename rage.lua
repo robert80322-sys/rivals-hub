@@ -27,7 +27,7 @@ local CFG = {
     tpRange   = 1.0,     -- 贴到敌人身上的距离（米）
     tpRate    = 0.12,    -- TP 刷新间隔
     aimPart   = "HitboxHead",
-    rageDelay = 0.03,    -- ragebot 每次发包间隔（越接近每帧越准）
+    rageDelay = 0.09,    -- ragebot 每次发包间隔（太快会一卡一卡）
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
@@ -95,7 +95,7 @@ do
         CFG.repRootMaxDist = 200
         CFG.esp = true
         CFG.wallbangMode = "desync"
-        CFG.rageDelay = 0.03
+        CFG.rageDelay = 0.09
         CFG.repRootHoldDisp = 80
         CFG.flashTP = false
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
@@ -561,11 +561,13 @@ local function rageFire()
             myRoot.Position.X, myRoot.Position.Y, myRoot.Position.Z, p.Name, dist))
     end
 
-    myRoot.CFrame = desyncCF
+    if not standMode then
+        myRoot.CFrame = desyncCF
+    end
     -- 之前用 BindToRenderStep("__rage_restore") 恢复，30ms 发一次会同名覆盖，
     -- 被覆盖掉的那次永远不会恢复 → 人就留在天上。改成 delay(0) 下一帧无条件执行。
     if not standMode then
-        task.delay(0.04, function()
+        task.delay(0.05, function()
             if not (myRoot and myRoot.Parent) then return end
             pcall(function()
                 myRoot.CFrame = oldCF
@@ -720,7 +722,10 @@ local function hideEsp(e)
     e.name.Visible = false
 end
 
+local espTick = 0
 RunService.RenderStepped:Connect(function()
+    espTick = espTick + 1
+    if espTick % 2 ~= 0 then return end
     if not CFG.esp then
         for _, e in pairs(espPool) do hideEsp(e) end
         for p in pairs(highlights) do killHighlight(p) end
