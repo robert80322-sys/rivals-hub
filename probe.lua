@@ -19,7 +19,11 @@ local RS      = game:GetService("ReplicatedStorage")
 local LP      = Players.LocalPlayer
 
 local LOG = {}
-local function flush()
+local lastFlush = 0
+local function flush(force)
+    local now = os.clock()
+    if not force and now - lastFlush < 1 then return end
+    lastFlush = now
     local text = table.concat(LOG, "\n")
     pcall(function() if writefile then writefile("probe_out.txt", text) end end)
     pcall(function() if writefile then writefile("/sdcard/Download/DSH-Go/probe_out.txt", text) end end)
@@ -28,7 +32,7 @@ local function line(msg)
     local m = "[PROBE] " .. tostring(msg)
     table.insert(LOG, m)
     print(m)
-    flush()
+    flush(false)
 end
 
 --────────── 0. 环境 ──────────
@@ -159,36 +163,11 @@ end
 
 line("安装 hook，请现在开一枪……")
 
+-- 只用 hookfunction 精确 hook 这一个函数。
+-- 之前用的 __namecall 会拦下游戏里所有方法调用（每帧上万次），手机上直接卡死 —— 不再用它。
 local hooked = false
-pcall(function()
-    if not (hookmetamethod and getrawmetatable) then return end
-    local mt = getrawmetatable(game)
-    local oldNamecall = mt.__namecall
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if method == "FireServer" and self == useItem then
-            local argc = select("#", ...)
-            print("========== 真实开火包 argc=" .. argc .. " ==========")
-            for i = 1, argc do
-                local a = select(i, ...)
-                line(string.format("arg%d: %s : %s", i, typeof(a), tostring(a)))
-                if type(a) == "table" then dump(a) end
-            end
-            print("==============================================")
-            flush()
-        end
-        return oldNamecall(self, ...)
-    end)
-    setreadonly(mt, true)
-    hooked = true
-end)
-
-if hooked then
-    line("✅ hook 已装（用 __namecall 拦的）")
-else
-    line("⚠️ hookmetamethod 失败，改试 hookfunction")
-    pcall(function()
+if hookfunction then
+    local ok, err = pcall(function()
         local old = hookfunction(useItem.FireServer, function(self, ...)
             local argc = select("#", ...)
             print("========== 真实开火包 argc=" .. argc .. " ==========")
@@ -197,11 +176,18 @@ else
                 line(string.format("arg%d: %s : %s", i, typeof(a), tostring(a)))
                 if type(a) == "table" then dump(a) end
             end
+            print("==============================================")
+            flush(true)
             return old(self, ...)
         end)
         hooked = true
     end)
-    line("hookfunction = " .. tostring(hooked))
+    if not ok then line("hookfunction 失败: " .. tostring(err)) end
 end
 
-line("准备好了：开一枪。日志同时写进了 probe_out.txt")
+if not hooked then
+    line("hookfunction 用不了，本机抓不到真实包")
+    line("退路：把控制台里 UseItem 相关的报错、或者游戏里开火的准星截图发我，我换别的路子")
+end
+
+line("准备好了。开一枪，日志会写进 probe_out.txt")
