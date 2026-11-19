@@ -547,13 +547,16 @@ local function rageFire()
     local oldVel  = myRoot.Velocity
     local oldRot  = myRoot.RotVelocity
     myRoot.CFrame = desyncCF
-    RunService:BindToRenderStep("__rage_restore", 101, function()
+    -- 之前用 BindToRenderStep("__rage_restore") 恢复，30ms 发一次会同名覆盖，
+    -- 被覆盖掉的那次永远不会恢复 → 人就留在天上。改成 delay(0) 下一帧无条件执行。
+    task.delay(0, function()
         if myRoot and myRoot.Parent then
-            myRoot.CFrame = oldCF
-            myRoot.Velocity = oldVel
-            myRoot.RotVelocity = oldRot
+            pcall(function()
+                myRoot.CFrame = oldCF
+                myRoot.Velocity = oldVel
+                myRoot.RotVelocity = oldRot
+            end)
         end
-        RunService:UnbindFromRenderStep("__rage_restore")
     end)
 
     --════ 包结构（照开源实现，和之前猜的不一样）════
@@ -603,6 +606,20 @@ task.spawn(function()
                 local r0 = LP.Character:FindFirstChild("HumanoidRootPart")
                 if r0 then setRepRoot(r0, nil) end
                 repRootActive = false
+            end
+            -- 关掉之后如果人卡在空中/离安全点太远，直接拉回来
+            local r0 = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if r0 and safeCF then
+                local d = (r0.Position - safeCF.Position).Magnitude
+                local airborne = r0.Position.Y > safeCF.Position.Y + 15
+                if d > 60 or airborne then
+                    pcall(function()
+                        r0.CFrame = safeCF
+                        r0.Velocity = Vector3.zero
+                        r0.RotVelocity = Vector3.zero
+                    end)
+                    dbg(string.format("关 RAGE：人卡在外面(%.0fm) 已拉回", d))
+                end
             end
             rageStatus = "待命"
             task.wait(0.2)
