@@ -27,7 +27,7 @@ local CFG = {
     tpRange   = 1.0,     -- 贴到敌人身上的距离（米）
     tpRate    = 0.12,    -- TP 刷新间隔
     aimPart   = "HitboxHead",
-    rageDelay = 0.07,    -- ragebot 每次发包间隔
+    rageDelay = 0.03,    -- ragebot 每次发包间隔（越接近每帧越准）
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
@@ -85,7 +85,7 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 8
+local CFG_VER = 9
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
@@ -93,6 +93,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 200
         CFG.esp = true
+        CFG.rageDelay = 0.03
         CFG.repRootHoldDisp = 80
         CFG.flashTP = false
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
@@ -544,7 +545,14 @@ local function rageFire()
 
     --════ 包结构（照开源实现，和之前猜的不一样）════
     local aimCF = CFrame.lookAt(desyncCF.Position, head.Position)
-    local aimedPos = head.Position + Vector3.new((math.random()-0.5)*0.1, (math.random()-0.5)*0.1, (math.random()-0.5)*0.1)
+    -- 提前量：按目标当前速度预判 ~60ms，打移动靶准很多
+    local lead = Vector3.zero
+    pcall(function()
+        lead = root.AssemblyLinearVelocity * 0.06
+        if lead.Magnitude > 25 then lead = lead.Unit * 25 end
+    end)
+    local aimedPos = head.Position + lead
+        + Vector3.new((math.random()-0.5)*0.15, (math.random()-0.5)*0.15, (math.random()-0.5)*0.15)
     local objSpaceHeadOffset = head.CFrame:ToObjectSpace(CFrame.new(aimedPos))
 
     local C1, C0, C2, C3 = string.char(1), string.char(0), string.char(2), string.char(3)
@@ -590,7 +598,39 @@ task.spawn(function()
 end)
 
 --═══════════ ESP 透视 ═══════════
+-- 两层：Highlight 给角色本体描边（AlwaysOnTop，墙也挡不住 → 真透视）
+--       2D 框 + 名字距离（辅助定位）
 local espPool = {}
+local highlights = {}
+
+local function killHighlight(p)
+    local h = highlights[p]
+    if h then
+        pcall(function() h:Destroy() end)
+        highlights[p] = nil
+    end
+end
+
+local function ensureHighlight(p, ch, isTarget)
+    local h = highlights[p]
+    if not h or h.Parent == nil then
+        h = Instance.new("Highlight")
+        h.Name = "RageLiteHL"
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.OutlineTransparency = 0
+        h.FillTransparency = 0.55
+        h.Parent = ch
+        highlights[p] = h
+    end
+    h.Adornee = ch
+    if isTarget then
+        h.FillColor = Color3.fromRGB(255, 160, 40)    -- 当前 RAGE 目标
+        h.OutlineColor = Color3.fromRGB(255, 220, 120)
+    else
+        h.FillColor = Color3.fromRGB(255, 40, 40)
+        h.OutlineColor = Color3.fromRGB(255, 255, 255)
+    end
+end
 
 local function getEsp(p)
     local e = espPool[p]
@@ -628,6 +668,7 @@ end
 RunService.RenderStepped:Connect(function()
     if not CFG.esp then
         for _, e in pairs(espPool) do hideEsp(e) end
+        for p in pairs(highlights) do killHighlight(p) end
         return
     end
     local cam = workspace.CurrentCamera
@@ -638,6 +679,8 @@ RunService.RenderStepped:Connect(function()
         local drawn = false
         if p ~= LP and not isAlly(p) and p.Character then
             local ch = p.Character
+            local rageTarget = (rageOn and nearestEnemy(CFG.maxDist) == p)
+            ensureHighlight(p, ch, rageTarget)
             local head = ch:FindFirstChild("Head")
             local hrp  = ch:FindFirstChild("HumanoidRootPart")
             local hum  = ch:FindFirstChildOfClass("Humanoid")
@@ -664,7 +707,10 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
-        if not drawn then hideEsp(espPool[p]) end
+        if not drawn then
+            hideEsp(espPool[p])
+            killHighlight(p)
+        end
     end
 end)
 
