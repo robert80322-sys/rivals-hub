@@ -31,8 +31,8 @@ local CFG = {
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
-    repRootMaxDist = 100,-- 只有目标在这个距离内才挂，太远挂会被拉出地图
-    repRootHoldDisp = 120, -- 复制根挂多久再摘（毫秒）
+    repRootMaxDist = 60, -- 只有目标在这个距离内才挂，太远挂会被拉出地图
+    repRootHoldDisp = 80,  -- 复制根挂多久再摘（毫秒）
     flashTP   = false,   -- 闪身：先过去再打。默认关，之前它会把人送到地图外
     flashRange = 150,    -- 闪身最大距离
     teleportReach = 1.0, -- 站位到目标的水平距离
@@ -90,8 +90,8 @@ do
     if ver < CFG_VER then
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
-        CFG.repRootMaxDist = 100
-        CFG.repRootHoldDisp = 120
+        CFG.repRootMaxDist = 60
+        CFG.repRootHoldDisp = 80
         CFG.flashTP = false
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
@@ -533,7 +533,20 @@ local function rageFire()
         return false
     end
 
-    if myRoot0 and CFG.repRoot and distToTarget <= CFG.repRootMaxDist then
+    -- 复制根会改掉客户端物理的参考点：人一站定没事，一走动位置就算错，直接飞出去摔死。
+    -- 所以只在速度接近 0 的时候挂，移动时老老实实发包（打不穿墙，但不会死）。
+    local moving = false
+    if myRoot0 then
+        pcall(function()
+            moving = myRoot0.AssemblyLinearVelocity.Magnitude > 2.5
+        end)
+    end
+
+    if moving then
+        rageStatus = "移动中：不挂根（不会穿，但不会死）"
+    end
+
+    if myRoot0 and CFG.repRoot and not moving and distToTarget <= CFG.repRootMaxDist then
         -- 关键顺序（Kicia 也是这个顺序）：先让身体到目标旁边，再挂复制根。
         -- 人和根位置一致，物理就不会撕扯，也就不会被拽出地图；
         -- 反过来（人在原地、根在目标身上）就会出现"莫名其妙传出去摔死"。
