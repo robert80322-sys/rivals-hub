@@ -30,8 +30,8 @@ local CFG = {
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
-    repRoot   = false,   -- 挂物理复制根（真穿墙），但服务端可能把你拉出地图，默认关
-    repRootMaxDist = 60, -- 只有目标在这个距离内才挂，远处挂必被拉走
+    repRoot   = true,    -- 挂物理复制根（真穿墙）
+    repRootMaxDist = 100,-- 只有目标在这个距离内才挂，太远挂会被拉出地图
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -81,11 +81,13 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 6
+local CFG_VER = 7
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
         CFG.tpMaxDist = 1000
+        CFG.repRoot = true
+        CFG.repRootMaxDist = 100
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
         CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
@@ -505,7 +507,15 @@ local function rageFire()
     local canTP = myRoot0 ~= nil and (targetPos - myPos).Magnitude <= CFG.tpMaxDist
     local wallOK = false
 
-    if myRoot0 and CFG.repRoot and (targetPos - myPos).Magnitude <= CFG.repRootMaxDist then
+    local distToTarget = (targetPos - myPos).Magnitude
+    if CFG.repRoot and distToTarget > CFG.repRootMaxDist then
+        rageStatus = string.format("目标太远(%.0f>%.0f) 穿不了墙", distToTarget, CFG.repRootMaxDist)
+        dbg(string.format("skip: 距离%.0f 超过穿墙上限%.0f（此时发包打不中，省着别发）",
+            distToTarget, CFG.repRootMaxDist))
+        return false
+    end
+
+    if myRoot0 and CFG.repRoot and distToTarget <= CFG.repRootMaxDist then
         -- 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
         -- 注意：只有近距离才敢挂，远了服务端会把你整只拉过去 —— 那就是"传到地图外摔死"
         wallOK = setRepRoot(myRoot0, part)
