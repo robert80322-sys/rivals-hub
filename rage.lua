@@ -226,6 +226,8 @@ local function isAlly(p)
         if p.Team == LP.Team then return true end
         if p.Team.Name == LP.Team.Name then return true end
     end
+    local pt, lt = p:GetAttribute("TeamID"), LP:GetAttribute("TeamID")
+    if pt ~= nil and lt ~= nil then return pt == lt end
     local a, b = p:GetAttribute("Team"), LP:GetAttribute("Team")
     if a ~= nil and b ~= nil and a == b then return true end
     local na, nb = p:GetAttribute("TeamName"), LP:GetAttribute("TeamName")
@@ -467,16 +469,14 @@ end
 
 local function rageFire()
     if not RIVALS.ready then
-        rageStatus = "缺游戏模块（Utility/EnumLibrary）"
-        dbg("abort: 模块缺失 use=" .. tostring(RIVALS.use ~= nil)
-            .. " util=" .. tostring(RIVALS.util ~= nil)
-            .. " enums=" .. tostring(RIVALS.enums ~= nil))
+        rageStatus = "缺游戏模块"
+        dbg("abort: 模块缺失")
         return false
     end
     local now = os.clock()
     if now < rageNext then return false end
 
-    local p = nearestEnemy(CFG.maxDist)     -- 开火不限距离，只有传送才限
+    local p = nearestEnemy(CFG.maxDist)
     if not p then
         local total, allies = 0, 0
         for _, q in ipairs(Players:GetPlayers()) do
@@ -485,149 +485,86 @@ local function rageFire()
                 if isAlly(q) then allies = allies + 1 end
             end
         end
-        rageStatus = "没有目标（队友已排除）"
-        dbg(string.format("abort: 没有目标  房间里其他人=%d  被判成队友=%d", total, allies))
+        dbg(string.format("abort: 没有目标 其他人=%d 队友=%d", total, allies))
         return false
     end
+
     local _, ch = humOf(p)
     if not ch then return false end
-    local head, body = partsOf(ch)
-    local part = head or body
-    if not part then rageStatus = "目标没有命中盒" return false end
-
-    -- 照 Kicia 的 HitscanStrategy：站位 = 目标位置 + 远离方向 × reach + 腰高
-    local myChar0 = LP.Character
-    local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
-    local myPos = myRoot0 and myRoot0.Position or workspace.CurrentCamera.CFrame.Position
-    local tHRP = ch:FindFirstChild("HumanoidRootPart")
-    -- 站位/距离一律按脚底(HRP)算；hitbox 的 Y 可能离地面很远，拿它算站位会把人送到半空
-    local targetPos = (tHRP and tHRP.Position) or part.Position
-    local aimPos    = part.Position
-    -- 目标坐标异常（在虚空里/已死亡）就别算站位了，否则包里的 CFrame 会炸
-    if targetPos ~= targetPos or targetPos.Magnitude > 1e6 then
-        rageStatus = "目标坐标异常"
-        return false
-    end
-
-    local dir = myPos - targetPos
-    dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
-    local standPos = targetPos + dir * CFG.teleportReach + Vector3.new(0, CFG.attackHeight, 0)
-
-    local canTP = myRoot0 ~= nil and (targetPos - myPos).Magnitude <= CFG.tpMaxDist
-    local wallOK = false
-
-    local distToTarget = (targetPos - myPos).Magnitude
-    if CFG.repRoot and distToTarget > CFG.repRootMaxDist then
-        rageStatus = string.format("目标太远(%.0f>%.0f) 穿不了墙", distToTarget, CFG.repRootMaxDist)
-        dbg(string.format("skip: 距离%.0f 超过穿墙上限%.0f（此时发包打不中，省着别发）",
-            distToTarget, CFG.repRootMaxDist))
-        return false
-    end
-
-    -- 只挡真正坏掉的坐标（NaN / 离谱到 1e5）。之前卡 -150~800，Rivals 的 hitbox
-    -- 偏移本来就超出这个范围，导致一进 100 就被判"地图外"，RAGE 直接罢工。
-    if targetPos.X ~= targetPos.X or targetPos.Y ~= targetPos.Y or targetPos.Z ~= targetPos.Z
-    or math.abs(targetPos.Y) > 1e5 then
-        rageStatus = "目标坐标异常"
-        dbg(string.format("skip: 目标坐标异常 %s", tostring(targetPos)))
-        return false
-    end
-
-    -- 复制根会改掉客户端物理的参考点：人一站定没事，一走动位置就算错，直接飞出去摔死。
-    -- 所以只在速度接近 0 的时候挂，移动时老老实实发包（打不穿墙，但不会死）。
-    local moving = false
-    if myRoot0 then
-        pcall(function()
-            moving = myRoot0.AssemblyLinearVelocity.Magnitude > 2.5
-        end)
-    end
-
-    if moving then
-        rageStatus = "移动中：不挂根（不会穿，但不会死）"
-    end
-
-    if myRoot0 and CFG.repRoot and not moving and distToTarget <= CFG.repRootMaxDist then
-        -- 关键顺序（Kicia 也是这个顺序）：先让身体到目标旁边，再挂复制根。
-        -- 人和根位置一致，物理就不会撕扯，也就不会被拽出地图；
-        -- 反过来（人在原地、根在目标身上）就会出现"莫名其妙传出去摔死"。
-        if CFG.flashTP and distToTarget <= CFG.flashRange then
-            homeCF = myRoot0.CFrame
-            setCF(myRoot0, CFrame.new(standPos, targetPos))
-        end
-        wallOK = setRepRoot(myRoot0, part)
-        repRootActive = wallOK
-        -- 2) 人一步都不动：只让服务端认为你在那边，角色留在原地
-    end
+    -- 开源实现打的是 Head，不是 HitboxHead
+    local head = ch:FindFirstChild("Head")
+    local root = ch:FindFirstChild("HumanoidRootPart")
+    if not head or not root then rageStatus = "目标缺 Head" return false end
 
     local item = equippedItem()
-    if not item then
-        rageStatus = "拿不到武器"
-        dbg("abort: equippedItem = nil（FighterController/GetFighter 没取到）")
-        return false
-    end
+    if not item then rageStatus = "拿不到武器" dbg("abort: equippedItem nil") return false end
     local objId = item.Get and item:Get("ObjectID")
-    if not objId then
-        rageStatus = "武器没有 ObjectID"
-        dbg("abort: ObjectID = nil, item=" .. tostring(item))
+    if not objId then rageStatus = "没有 ObjectID" dbg("abort: ObjectID nil") return false end
+
+    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return false end
+
+    local myPos  = myRoot.Position
+    local tPos   = root.Position
+    local dist   = (tPos - myPos).Magnitude
+
+    if dist > CFG.repRootMaxDist then
+        rageStatus = string.format("太远(%.0f>%d)", dist, CFG.repRootMaxDist)
         return false
     end
-    dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)",
-        p.Name, (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
-    dbg(string.format("  part=%s (%s) hitboxY=%.0f  角色里 HitboxHead=%s HitboxBody=%s Head=%s",
-        part.Name, part.ClassName, part.Position.Y,
-        tostring(ch:FindFirstChild("HitboxHead") ~= nil),
-        tostring(ch:FindFirstChild("HitboxBody") ~= nil),
-        tostring(ch:FindFirstChild("Head") ~= nil)))
 
-    -- 按武器真实冷却发，发太快服务端会把包丢掉（30 发中 2 发就是这么来的）
-    local cd = CFG.rageDelay
-    pcall(function()
-        local info = item.Info
-        if type(info) == "table" then
-            local raw = info.FireCooldown or info.ShootCooldown or info.AttackCooldown
-            if type(raw) == "number" and raw > 0 then cd = raw end
+    rageNext = now + math.max(CFG.rageDelay, 0.02)
+
+    --════ desync：把身体在 Heartbeat 里挪到目标旁边，同一帧末尾立刻挪回来 ════
+    -- 服务端看到的是目标旁边的位置，客户端一帧内就复原，物理不会乱，
+    -- 也不会像 PhysicsRepRootRef 那样把人甩出地图。
+    local angle  = math.random() * math.pi * 2
+    local radius = math.random(30, 80) / 10
+    local height = math.random(-10, 30) / 10
+    local offset = Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+    local standPos = tPos + offset
+    if standPos.Y < 0 or standPos.Y > 200 then standPos = tPos + Vector3.new(0, 2, 2) end
+
+    local desyncCF = CFrame.lookAt(standPos, head.Position) * CFrame.Angles(math.rad(180), 0, 0)
+
+    local oldCF   = myRoot.CFrame
+    local oldVel  = myRoot.Velocity
+    local oldRot  = myRoot.RotVelocity
+    myRoot.CFrame = desyncCF
+    RunService:BindToRenderStep("__rage_restore", 101, function()
+        if myRoot and myRoot.Parent then
+            myRoot.CFrame = oldCF
+            myRoot.Velocity = oldVel
+            myRoot.RotVelocity = oldRot
         end
+        RunService:UnbindFromRenderStep("__rage_restore")
     end)
-    rageNext = now + math.max(cd, 0.06)
 
-    -- 关键：包里的起点用 standPos（目标身边），不是自己实际站在哪 —— 所以墙挡着也照样命中
-    local aim = CFrame.new(standPos, aimPos)
-    local shot = {
-        [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
-        [utf8.char(1)] = RIVALS.util:EncodeCFrame(aim),
-        [utf8.char(2)] = part,
-        [utf8.char(3)] = RIVALS.util:EncodeCFrame(CFrame.new()),
+    --════ 包结构（照开源实现，和之前猜的不一样）════
+    local aimCF = CFrame.lookAt(desyncCF.Position, head.Position)
+    local aimedPos = head.Position + Vector3.new((math.random()-0.5)*0.1, (math.random()-0.5)*0.1, (math.random()-0.5)*0.1)
+    local objSpaceHeadOffset = head.CFrame:ToObjectSpace(CFrame.new(aimedPos))
+
+    local C1, C0, C2, C3 = string.char(1), string.char(0), string.char(2), string.char(3)
+    local cameradata = {}
+    cameradata[C1] = {
+        [C0] = RIVALS.util:EncodeCFrame(aimCF),
+        [C1] = RIVALS.util:EncodeCFrame(head.CFrame),        -- 目标的 CFrame，不是 aim
+        [C2] = head,
+        [C3] = RIVALS.util:EncodeCFrame(objSpaceHeadOffset), -- 目标局部空间偏移
     }
+
     local ok, err = pcall(function()
-        RIVALS.use:FireServer(
-            objId,
-            toEnum("StartShooting"),
-            { [utf8.char(1)] = shot, [utf8.char(2)] = true },
-            nil
-        )
+        RIVALS.use:FireServer(objId, toEnum("StartShooting"), cameradata, nil)
     end)
-    -- 发完保留 0.08 秒再摘：太短服务端还没处理包就没了（白打），太长人就被拽过去。
-    -- 0.08 秒是这两件事的折中。
-    if wallOK and myRoot0 then
-        -- 挂的这段时间把根锚住：服务端同步位置时物理不会真的把人拽走
-        task.delay(math.clamp(CFG.repRootHoldDisp / 1000, 0.03, 0.6), function()
-            local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if r then
-                pcall(function() setRepRoot(r, nil) end)
-                if CFG.flashTP and homeCF then
-                    pcall(function() setCF(r, homeCF) end)   -- 闪回原位
-                end
-            end
-        end)
-    end
 
     if ok then
-        dbg(string.format("  FireServer OK  wallOK=%s hold=%dms 距离=%.0f",
-            tostring(wallOK), CFG.repRootHoldDisp, distToTarget))
-        rageStatus = (wallOK and "原地穿墙 → " or "普通 → ") .. p.Name
+        rageStatus = string.format("desync打 → %s (%.0f)", p.Name, dist)
+        dbg(string.format("fire → %s dist=%.0f objId=%s part=Head desync=(%.0f,%.0f,%.0f)",
+            p.Name, dist, tostring(objId), standPos.X, standPos.Y, standPos.Z))
         return true
     end
-    rageStatus = "发包失败：" .. tostring(err)
+    rageStatus = "发包失败: " .. tostring(err)
     dbg("  FireServer 失败: " .. tostring(err))
     return false
 end
@@ -647,6 +584,18 @@ task.spawn(function()
             rageStatus = "待命"
             task.wait(0.2)
         end
+    end
+end)
+
+--═══════════ 掉图保护（desync 万一还是把物理带歪，这里兜底） ═══════════
+RunService.Heartbeat:Connect(function()
+    local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if root and root.Position.Y < -40 then
+        pcall(function()
+            root.CFrame = CFrame.new(root.Position.X, 50, root.Position.Z)
+            root.Velocity = Vector3.zero
+        end)
+        dbg("掉图保护触发：Y=" .. math.floor(root.Position.Y))
     end
 end)
 
