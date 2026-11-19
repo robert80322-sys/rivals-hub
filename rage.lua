@@ -211,18 +211,14 @@ local function isAlly(p)
     if p == LP then return true end
     if CFG.teamFilter == false then return false end   -- 识别关了：谁都打
     if CFG.allyIds[tostring(p.UserId)] then return true end
-    -- 1) Roblox Team 对象
+
+    -- 只信 Team 对象和属性。
+    -- 之前还比了 TeamColor —— FFA 里所有人的 TeamColor 都是默认白色、Neutral 也不是 true，
+    -- 结果整个房间都被判成队友，nearestEnemy 永远返回 nil。
     if p.Team ~= nil and LP.Team ~= nil then
         if p.Team == LP.Team then return true end
         if p.Team.Name == LP.Team.Name then return true end
     end
-    -- 2) TeamColor（Team 对象缺失时它也可能有值；中立色白不算）
-    if p.Neutral ~= true and LP.Neutral ~= true
-    and p.TeamColor ~= nil and LP.TeamColor ~= nil
-    and p.TeamColor == LP.TeamColor then
-        return true
-    end
-    -- 3) 玩家属性
     local a, b = p:GetAttribute("Team"), LP:GetAttribute("Team")
     if a ~= nil and b ~= nil and a == b then return true end
     local na, nb = p:GetAttribute("TeamName"), LP:GetAttribute("TeamName")
@@ -274,10 +270,14 @@ local function nearestEnemy(maxD, farthest)
     local root = ch0 and ch0:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
     local best, bd = nil, (farthest and -1 or math.huge)
+    local seen, skipped = 0, 0
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LP then
+            seen = seen + 1
             local hum, ch = humOf(p)
-            if hum and not isAlly(p) then
+            local ally = isAlly(p)
+            if ally then skipped = skipped + 1 end
+            if hum and not ally then
                 local hrp = ch:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local d = (hrp.Position - root.Position).Magnitude
@@ -470,8 +470,15 @@ local function rageFire()
 
     local p = nearestEnemy(CFG.maxDist)     -- 开火不限距离，只有传送才限
     if not p then
+        local total, allies = 0, 0
+        for _, q in ipairs(Players:GetPlayers()) do
+            if q ~= LP then
+                total = total + 1
+                if isAlly(q) then allies = allies + 1 end
+            end
+        end
         rageStatus = "没有目标（队友已排除）"
-        dbg("abort: 没有目标")
+        dbg(string.format("abort: 没有目标  房间里其他人=%d  被判成队友=%d", total, allies))
         return false
     end
     local _, ch = humOf(p)
