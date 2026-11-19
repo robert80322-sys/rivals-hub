@@ -32,6 +32,7 @@ local CFG = {
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
     repRootMaxDist = 100,-- 只有目标在这个距离内才挂，太远挂会被拉出地图
+    repRootHoldDisp = 120, -- 复制根挂多久再摘（毫秒）；太短服务端还没处理包，太长人被拽走
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -88,6 +89,7 @@ do
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
         CFG.repRootMaxDist = 100
+        CFG.repRootHoldDisp = 120
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
         CFG.silentX, CFG.silentY, CFG.silentSize = 12, -84, 64
         CFG.spreadX, CFG.spreadY, CFG.spreadSize = 12, 0, 64
@@ -568,14 +570,20 @@ local function rageFire()
     -- 发完保留 0.08 秒再摘：太短服务端还没处理包就没了（白打），太长人就被拽过去。
     -- 0.08 秒是这两件事的折中。
     if wallOK and myRoot0 then
-        task.delay(0.08, function()
+        -- 挂的这段时间把根锚住：服务端同步位置时物理不会真的把人拽走
+        pcall(function() myRoot0.Anchored = true end)
+        task.delay(math.clamp(CFG.repRootHoldDisp / 1000, 0.03, 0.6), function()
             local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if r then pcall(function() setRepRoot(r, nil) end) end
+            if r then
+                pcall(function() setRepRoot(r, nil) end)
+                pcall(function() r.Anchored = false end)
+            end
         end)
     end
 
     if ok then
-        dbg("  FireServer OK  wallOK=" .. tostring(wallOK))
+        dbg(string.format("  FireServer OK  wallOK=%s hold=%dms 距离=%.0f",
+            tostring(wallOK), CFG.repRootHoldDisp, distToTarget))
         rageStatus = (wallOK and "原地穿墙 → " or "普通 → ") .. p.Name
         return true
     end
@@ -1143,6 +1151,7 @@ makeButtonRow(scroll, "穿墙开/关（默认关·会被拉走）", function()
     rageStatus = CFG.repRoot and "穿墙 开（目标 60 内才挂）" or "穿墙 关（只发包）"
 end, nextOrd())
 makeStepper(scroll, "穿墙最大距离", "repRootMaxDist", 10, 10, 500, nextOrd())
+makeStepper(scroll, "穿墙挂载(毫秒)", "repRootHoldDisp", 20, 30, 600, nextOrd())
 header("TEAM 键（队友识别）")
 makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
