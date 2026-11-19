@@ -18,7 +18,18 @@ local Players = game:GetService("Players")
 local RS      = game:GetService("ReplicatedStorage")
 local LP      = Players.LocalPlayer
 
-local function line(msg) print("[PROBE] " .. tostring(msg)) end
+local LOG = {}
+local function flush()
+    local text = table.concat(LOG, "\n")
+    pcall(function() if writefile then writefile("probe_out.txt", text) end end)
+    pcall(function() if writefile then writefile("/sdcard/Download/DSH-Go/probe_out.txt", text) end end)
+end
+local function line(msg)
+    local m = "[PROBE] " .. tostring(msg)
+    table.insert(LOG, m)
+    print(m)
+    flush()
+end
 
 --────────── 0. 环境 ──────────
 line("game.PlaceId = " .. tostring(game.PlaceId) .. "  jobId = " .. tostring(game.JobId))
@@ -165,6 +176,7 @@ pcall(function()
                 if type(a) == "table" then dump(a) end
             end
             print("==============================================")
+            flush()
         end
         return oldNamecall(self, ...)
     end)
@@ -192,4 +204,4 @@ else
     line("hookfunction = " .. tostring(hooked))
 end
 
-line("准备好了：开一枪，然后把上面几段整段发给我")
+line("准备好了：开一枪。日志同时写进了 probe_out.txt")
