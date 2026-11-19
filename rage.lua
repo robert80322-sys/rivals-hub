@@ -31,7 +31,7 @@ local CFG = {
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
-    repRootMaxDist = 60, -- 只有目标在这个距离内才挂，太远挂会被拉出地图
+    repRootMaxDist = 200,-- 穿墙/desync 的最大距离
     repRootHoldDisp = 80,  -- 复制根挂多久再摘（毫秒）
     flashTP   = false,   -- 闪身：先过去再打。默认关，之前它会把人送到地图外
     flashRange = 150,    -- 闪身最大距离
@@ -42,7 +42,8 @@ local CFG = {
     teamFilter = true,   -- true = 不打队友 / false = 连队友一起打
     allyIds    = {},     -- 手动标记为队友的 UserId
     _cfgVer    = 0,      -- 配置结构版本，用来做迁移
-    autoFire   = false,  -- 自动开火：准星附近有敌人就替玩家扣扳机
+    esp        = true,   -- ESP 透视
+    autoFire   = false,  -- 自动开火（无按钮，保留配置）
     fireWindow = 70,     -- 准星多少像素内有目标才开火
     fireX = 12, fireY = -168, fireSize = 92,
     silentOn   = false,  -- 静默：视角不动，服务端按我方视角判定
@@ -84,13 +85,14 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 7
+local CFG_VER = 8
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
-        CFG.repRootMaxDist = 60
+        CFG.repRootMaxDist = 200
+        CFG.esp = true
         CFG.repRootHoldDisp = 80
         CFG.flashTP = false
         CFG.fireX,  CFG.fireY,  CFG.fireSize  = 12, -168, 92
@@ -587,6 +589,85 @@ task.spawn(function()
     end
 end)
 
+--═══════════ ESP 透视 ═══════════
+local espPool = {}
+
+local function getEsp(p)
+    local e = espPool[p]
+    if e then return e end
+    e = {}
+    for i = 1, 4 do
+        local f = Instance.new("Frame")
+        f.BackgroundColor3 = Color3.fromRGB(90, 255, 140)
+        f.BorderSizePixel = 0
+        f.Visible = false
+        f.ZIndex = 900
+        f.Parent = gui
+        e[i] = f
+    end
+    e.name = Instance.new("TextLabel")
+    e.name.BackgroundTransparency = 1
+    e.name.Font = Enum.Font.GothamBold
+    e.name.TextSize = 12
+    e.name.TextColor3 = Color3.fromRGB(120, 255, 160)
+    e.name.TextStrokeTransparency = 0.3
+    e.name.TextXAlignment = Enum.TextXAlignment.Center
+    e.name.Visible = false
+    e.name.ZIndex = 901
+    e.name.Parent = gui
+    espPool[p] = e
+    return e
+end
+
+local function hideEsp(e)
+    if not e then return end
+    for i = 1, 4 do e[i].Visible = false end
+    e.name.Visible = false
+end
+
+RunService.RenderStepped:Connect(function()
+    if not CFG.esp then
+        for _, e in pairs(espPool) do hideEsp(e) end
+        return
+    end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local camPos = cam.CFrame.Position
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        local drawn = false
+        if p ~= LP and not isAlly(p) and p.Character then
+            local ch = p.Character
+            local head = ch:FindFirstChild("Head")
+            local hrp  = ch:FindFirstChild("HumanoidRootPart")
+            local hum  = ch:FindFirstChildOfClass("Humanoid")
+            if head and hrp and hum and hum.Health > 0 then
+                local a, onA = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
+                local b, onB = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                if onA and onB then
+                    local h = math.abs(b.Y - a.Y)
+                    if h > 8 and h < 900 then
+                        local w  = h * 0.55
+                        local x0 = a.X - w / 2
+                        local y0 = a.Y
+                        local e = getEsp(p)
+                        e[1].Visible = true; e[1].Position = UDim2.fromOffset(x0, y0);     e[1].Size = UDim2.fromOffset(w, 1)
+                        e[2].Visible = true; e[2].Position = UDim2.fromOffset(x0, y0 + h); e[2].Size = UDim2.fromOffset(w, 1)
+                        e[3].Visible = true; e[3].Position = UDim2.fromOffset(x0, y0);     e[3].Size = UDim2.fromOffset(1, h)
+                        e[4].Visible = true; e[4].Position = UDim2.fromOffset(x0 + w, y0); e[4].Size = UDim2.fromOffset(1, h)
+                        e.name.Visible = true
+                        e.name.Text = string.format("%s  %dm", p.Name, math.floor((hrp.Position - camPos).Magnitude))
+                        e.name.Size = UDim2.fromOffset(w + 90, 14)
+                        e.name.Position = UDim2.fromOffset(x0 - 45, y0 - 16)
+                        drawn = true
+                    end
+                end
+            end
+        end
+        if not drawn then hideEsp(espPool[p]) end
+    end
+end)
+
 --═══════════ 掉图保护（desync 万一还是把物理带歪，这里兜底） ═══════════
 RunService.Heartbeat:Connect(function()
     local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -665,7 +746,7 @@ local btnTeam = makeBtn("team", "TEAM", Color3.fromRGB(80, 220, 120))
 local btnTp   = makeBtn("tp",   "TP",   Color3.fromRGB(40, 210, 235))
 local btnAim  = makeBtn("aim",  "AIM",  Color3.fromRGB(255, 70, 70))
 local btnRage = makeBtn("rage", "RAGE", Color3.fromRGB(255, 175, 40))
-local btnFire = makeBtn("fire", "FIRE", Color3.fromRGB(255, 225, 80), "left")
+local btnEsp = makeBtn("fire", "ESP", Color3.fromRGB(120, 255, 160), "left")
 local btnSpread = makeBtn("spread", "SPREAD", Color3.fromRGB(120, 200, 255), "left")
 local btnSilent = makeBtn("silent", "SILENT", Color3.fromRGB(200, 130, 255), "left")
 
@@ -683,7 +764,7 @@ local function applyLayout()
     set(btnTp, "tp")
     set(btnAim, "aim")
     set(btnRage, "rage")
-    set(btnFire, "fire", "left")
+    set(btnEsp, "fire", "left")
     set(btnSpread, "spread", "left")
     set(btnSilent, "silent", "left")
 end
@@ -871,15 +952,14 @@ task.spawn(function()
 end)
 
 --═══════════ 两个开关按钮 ═══════════
-btnFire.MouseButton1Click:Connect(function()
-    CFG.autoFire = not CFG.autoFire
-    btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
-    btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
-    fireNext = 0
+btnEsp.MouseButton1Click:Connect(function()
+    CFG.esp = not CFG.esp
+    btnEsp.BackgroundTransparency = CFG.esp and 0.22 or 0.72
+    btnEsp.Text = CFG.esp and "ESP ●" or "ESP"
     saveCfg()
 end)
-btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
-btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
+btnEsp.BackgroundTransparency = CFG.esp and 0.22 or 0.72
+btnEsp.Text = CFG.esp and "ESP ●" or "ESP"
 
 btnSilent.MouseButton1Click:Connect(function()
     CFG.silentOn = not CFG.silentOn
@@ -1142,11 +1222,10 @@ makeStepper(scroll, "SPREAD 边距", "spreadX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "SPREAD 垂直", "spreadY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "SPREAD 大小", "spreadSize", 6, 40, 160, nextOrd())
 header("FIRE 键（自动开火）")
-makeButtonRow(scroll, "自动开火：点我切换", function()
-    CFG.autoFire = not CFG.autoFire
-    btnFire.BackgroundTransparency = CFG.autoFire and 0.22 or 0.72
-    btnFire.Text = CFG.autoFire and "FIRE ●" or "FIRE"
-    fireNext = 0
+makeButtonRow(scroll, "ESP：点我切换", function()
+    CFG.esp = not CFG.esp
+    btnEsp.BackgroundTransparency = CFG.esp and 0.22 or 0.72
+    btnEsp.Text = CFG.esp and "ESP ●" or "ESP"
     saveCfg()
 end, nextOrd())
 makeStepper(scroll, "准星范围", "fireWindow", 10, 20, 300, nextOrd())
@@ -1290,7 +1369,7 @@ task.spawn(function()
             tpHold and "●" or "○",
             aimOn and "●" or "○",
             rageOn and "●" or "○",
-            CFG.autoFire and "●" or "○",
+            CFG.esp and "●" or "○",
             CFG.silentOn and "●" or "○",
             (CFG.spreadOn and "●" or "○") .. "(" .. spreadState .. ")",
             (CFG.teamFilter and ("队友 " .. allies .. " [" .. teamInfo() .. "]") or "全打")
