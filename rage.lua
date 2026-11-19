@@ -538,7 +538,16 @@ local function rageFire()
     dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)", p.Name,
         (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
 
-    rageNext = now + CFG.rageDelay
+    -- 按武器真实冷却发，发太快服务端会把包丢掉（30 发中 2 发就是这么来的）
+    local cd = CFG.rageDelay
+    pcall(function()
+        local info = item.Info
+        if type(info) == "table" then
+            local raw = info.FireCooldown or info.ShootCooldown or info.AttackCooldown
+            if type(raw) == "number" and raw > 0 then cd = raw end
+        end
+    end)
+    rageNext = now + math.max(cd, 0.06)
 
     -- 关键：包里的起点用 standPos（目标身边），不是自己实际站在哪 —— 所以墙挡着也照样命中
     local aim = CFrame.new(standPos, targetPos)
@@ -546,7 +555,7 @@ local function rageFire()
         [utf8.char(0)] = RIVALS.util:EncodeCFrame(aim),
         [utf8.char(1)] = RIVALS.util:EncodeCFrame(aim),
         [utf8.char(2)] = part,
-        [utf8.char(3)] = RIVALS.util:EncodeCFrame(CFrame.Angles(0, math.pi / 2, 0)),
+        [utf8.char(3)] = RIVALS.util:EncodeCFrame(CFrame.new()),
     }
     local ok, err = pcall(function()
         RIVALS.use:FireServer(
@@ -556,6 +565,15 @@ local function rageFire()
             nil
         )
     end)
+    -- 发完保留 0.08 秒再摘：太短服务端还没处理包就没了（白打），太长人就被拽过去。
+    -- 0.08 秒是这两件事的折中。
+    if wallOK and myRoot0 then
+        task.delay(0.08, function()
+            local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+            if r then pcall(function() setRepRoot(r, nil) end) end
+        end)
+    end
+
     if ok then
         dbg("  FireServer OK  wallOK=" .. tostring(wallOK))
         rageStatus = (wallOK and "原地穿墙 → " or "普通 → ") .. p.Name
