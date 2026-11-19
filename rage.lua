@@ -30,6 +30,8 @@ local CFG = {
     rageDelay = 0.07,    -- ragebot 每次发包间隔
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
+    repRoot   = false,   -- 挂物理复制根（真穿墙），但服务端可能把你拉出地图，默认关
+    repRootMaxDist = 60, -- 只有目标在这个距离内才挂，远处挂必被拉走
     teleportReach = 1.0, -- 站位到目标的水平距离
     attackHeight  = 1.75,-- 包的起点高度（腰高）
     bone      = true,    -- AIM 优先打头，被挡则打身体
@@ -418,6 +420,11 @@ local function rageFire()
     local myRoot0 = myChar0 and myChar0:FindFirstChild("HumanoidRootPart")
     local myPos = myRoot0 and myRoot0.Position or workspace.CurrentCamera.CFrame.Position
     local targetPos = part.Position
+    -- 目标坐标异常（在虚空里/已死亡）就别算站位了，否则包里的 CFrame 会炸
+    if targetPos ~= targetPos or targetPos.Magnitude > 1e6 then
+        rageStatus = "目标坐标异常"
+        return false
+    end
 
     local dir = myPos - targetPos
     dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
@@ -426,8 +433,9 @@ local function rageFire()
     local canTP = myRoot0 ~= nil and (targetPos - myPos).Magnitude <= CFG.tpMaxDist
     local wallOK = false
 
-    if myRoot0 then
-        -- 1) 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
+    if myRoot0 and CFG.repRoot and (targetPos - myPos).Magnitude <= CFG.repRootMaxDist then
+        -- 复制根指到命中盒：服务端算射线/距离时认为你贴着他（这一步本身就是穿墙）
+        -- 注意：只有近距离才敢挂，远了服务端会把你整只拉过去 —— 那就是"传到地图外摔死"
         wallOK = setRepRoot(myRoot0, part)
         repRootActive = wallOK
         -- 2) 人一步都不动：只让服务端认为你在那边，角色留在原地
@@ -1016,6 +1024,13 @@ makeStepper(scroll, "准星范围", "fireWindow", 10, 20, 300, nextOrd())
 makeStepper(scroll, "左边距", "fireX", 6, 0, 400, nextOrd())
 makeStepper(scroll, "垂直", "fireY", 10, -700, 700, nextOrd())
 makeStepper(scroll, "大小", "fireSize", 6, 40, 160, nextOrd())
+header("RAGE 键")
+makeButtonRow(scroll, "穿墙开/关（默认关·会被拉走）", function()
+    CFG.repRoot = not CFG.repRoot
+    saveCfg()
+    rageStatus = CFG.repRoot and "穿墙 开（目标 60 内才挂）" or "穿墙 关（只发包）"
+end, nextOrd())
+makeStepper(scroll, "穿墙最大距离", "repRootMaxDist", 10, 10, 500, nextOrd())
 header("TEAM 键（队友识别）")
 makeStepper(scroll, "右边距", "teamX", 10, 0, 600, nextOrd())
 makeStepper(scroll, "垂直",   "teamY", 10, -700, 700, nextOrd())
