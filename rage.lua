@@ -127,19 +127,51 @@ pcall(function()
     RIVALS.ready = (RIVALS.use ~= nil and RIVALS.util ~= nil and RIVALS.enums ~= nil)
 end)
 
+-- FighterController 实际在 PlayerScripts.Controllers 下（不是 Modules），
+-- 之前的搜索路径漏掉了这一层，所以永远返回 nil、RAGE 一个包都没发出去过。
+local moduleCache = {}
 local function findModule(name)
-    local ps  = LP:FindFirstChild("PlayerScripts")
-    local roots = {}
-    local rsm = RS:FindFirstChild("Modules")
-    local psm = ps and ps:FindFirstChild("Modules")
-    if rsm then table.insert(roots, rsm) end
-    if psm then table.insert(roots, psm) end
-    for _, root in ipairs(roots) do
-        for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("ModuleScript") and d.Name == name then return d end
+    if moduleCache[name] then return moduleCache[name] end
+    local ps = LP:FindFirstChild("PlayerScripts")
+
+    -- 1) 常见直接路径
+    local direct = {
+        ps and ps:FindFirstChild("Controllers") and ps.Controllers:FindFirstChild(name),
+        ps and ps:FindFirstChild("Modules") and ps.Modules:FindFirstChild(name),
+        RS:FindFirstChild("Modules") and RS.Modules:FindFirstChild(name),
+    }
+    for _, m in ipairs(direct) do
+        if m and m:IsA("ModuleScript") then
+            moduleCache[name] = m
+            return m
+        end
+    end
+
+    -- 2) 全量兜底搜索
+    for _, root in ipairs({ ps, RS }) do
+        if root then
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("ModuleScript") and d.Name == name then
+                    moduleCache[name] = d
+                    return d
+                end
+            end
         end
     end
     return nil
+end
+
+-- ToEnum 的返回值 print 出来是空（控制字符），保险起见退化去查 EnumLibrary._to_enum
+local function toEnum(name)
+    local v
+    pcall(function() v = RIVALS.enums:ToEnum(name) end)
+    if v == nil or v == "" then
+        pcall(function()
+            local tbl = RIVALS.enums and RIVALS.enums._to_enum
+            if type(tbl) == "table" then v = tbl[name] end
+        end)
+    end
+    return v
 end
 
 --═══════════ 基础 ═══════════
@@ -338,7 +370,16 @@ local function equippedItem()
         local mod = findModule("FighterController")
         if not mod then return nil end
         local FC = require(mod)
-        local fighter = FC and FC:GetFighter(LP)
+        local fighter = FC and FC.GetFighter and FC:GetFighter(LP)
+        if not fighter then
+            local CFmod = findModule("ClientFighter")
+            if CFmod then
+                local okCF, CF = pcall(require, CFmod)
+                if okCF and type(CF) == "table" and CF.GetFighter then
+                    fighter = CF:GetFighter(LP)
+                end
+            end
+        end
         if not fighter then return nil end
         if fighter.EquippedItem then return fighter.EquippedItem end
         if fighter.Items then
@@ -493,7 +534,7 @@ local function rageFire()
     local ok, err = pcall(function()
         RIVALS.use:FireServer(
             objId,
-            RIVALS.enums:ToEnum("StartShooting"),
+            toEnum("StartShooting"),
             { [utf8.char(1)] = shot, [utf8.char(2)] = true },
             nil
         )
@@ -668,7 +709,7 @@ local function autoFireTick()
     local ok = pcall(function()
         RIVALS.use:FireServer(
             objId,
-            RIVALS.enums:ToEnum("StartShooting"),
+            toEnum("StartShooting"),
             { [utf8.char(1)] = shot, [utf8.char(2)] = true },
             nil
         )
