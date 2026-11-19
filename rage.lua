@@ -53,6 +53,20 @@ local CFG = {
 }
 
 local RAGE_CFG_FILE = "RivalsRageCfg.json"
+
+-- 轻量诊断：只往文件写日志，不 hook、不改游戏，出问题能查到卡在哪一步
+local DBG = {}
+local function dbg(msg)
+    DBG[#DBG + 1] = os.date("%H:%M:%S") .. "  " .. tostring(msg)
+    if #DBG > 300 then table.remove(DBG, 1) end
+end
+task.spawn(function()
+    while task.wait(2) do
+        local text = table.concat(DBG, "\n")
+        pcall(function() if writefile then writefile("rage_debug.txt", text) end end)
+        pcall(function() if writefile then writefile("/sdcard/Download/DSH-Go/rage_debug.txt", text) end end)
+    end
+end)
 local HttpService = game:GetService("HttpService")
 
 local function saveCfg()
@@ -403,12 +417,22 @@ local function rageTeleport(targetChar)
 end
 
 local function rageFire()
-    if not RIVALS.ready then rageStatus = "缺游戏模块（Utility/EnumLibrary）" return false end
+    if not RIVALS.ready then
+        rageStatus = "缺游戏模块（Utility/EnumLibrary）"
+        dbg("abort: 模块缺失 use=" .. tostring(RIVALS.use ~= nil)
+            .. " util=" .. tostring(RIVALS.util ~= nil)
+            .. " enums=" .. tostring(RIVALS.enums ~= nil))
+        return false
+    end
     local now = os.clock()
     if now < rageNext then return false end
 
     local p = nearestEnemy(CFG.maxDist)     -- 开火不限距离，只有传送才限
-    if not p then rageStatus = "没有目标（队友已排除）" return false end
+    if not p then
+        rageStatus = "没有目标（队友已排除）"
+        dbg("abort: 没有目标")
+        return false
+    end
     local _, ch = humOf(p)
     if not ch then return false end
     local head, body = partsOf(ch)
@@ -442,9 +466,19 @@ local function rageFire()
     end
 
     local item = equippedItem()
-    if not item then rageStatus = "拿不到武器" return false end
+    if not item then
+        rageStatus = "拿不到武器"
+        dbg("abort: equippedItem = nil（FighterController/GetFighter 没取到）")
+        return false
+    end
     local objId = item.Get and item:Get("ObjectID")
-    if not objId then rageStatus = "武器没有 ObjectID" return false end
+    if not objId then
+        rageStatus = "武器没有 ObjectID"
+        dbg("abort: ObjectID = nil, item=" .. tostring(item))
+        return false
+    end
+    dbg(string.format("fire → %s  距离%.0f  objId=%s(%s)", p.Name,
+        (part.Position - myPos).Magnitude, tostring(objId), typeof(objId)))
 
     rageNext = now + CFG.rageDelay
 
@@ -465,10 +499,12 @@ local function rageFire()
         )
     end)
     if ok then
+        dbg("  FireServer OK  wallOK=" .. tostring(wallOK))
         rageStatus = (wallOK and "原地穿墙 → " or "普通 → ") .. p.Name
         return true
     end
     rageStatus = "发包失败：" .. tostring(err)
+    dbg("  FireServer 失败: " .. tostring(err))
     return false
 end
 
