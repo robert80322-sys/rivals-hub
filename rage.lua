@@ -44,10 +44,9 @@ local CFG = {
     _cfgVer    = 0,      -- 配置结构版本，用来做迁移
     esp        = true,   -- ESP 透视
     wallbangMode = "stand",
-    cycleTPDist  = 45,   -- 每轮传送到目标多近（必须在 repRootMaxDist 内）
-    cycleFireSec = 1.0,  -- 每轮打多久
-    cycleWaitSec = 0.5,  -- 回原位后等多久
-    cycleHomeBack = true,-- 打完回原位
+    blinkTPDist  = 1.2,  -- 闪到目标多近（studs，1 格多）
+    blinkInterval = 0.1, -- 每多久闪一个来回
+    blinkHeight  = 2.5,  -- 闪现时的竖直偏移
     autoFire   = false,  -- 自动开火（无按钮，保留配置）
     fireWindow = 70,     -- 准星多少像素内有目标才开火
     fireX = 12, fireY = -168, fireSize = 92,
@@ -97,6 +96,8 @@ do
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
         CFG.repRootMaxDist = 60
+        CFG.blinkTPDist = 1.2
+        CFG.blinkInterval = 0.1
         CFG.esp = true
         CFG.wallbangMode = "stand"
         CFG.rageDelay = 0.09
@@ -487,14 +488,14 @@ local function rageTeleport(targetChar)
     return true
 end
 
-local function rageFire()
+local function rageFire(force)
     if not RIVALS.ready then
         rageStatus = "缺游戏模块"
         dbg("abort: 模块缺失")
         return false
     end
     local now = os.clock()
-    if now < rageNext then return false end
+    if not force and now < rageNext then return false end
 
     if not inMatch() then
         rageStatus = "大厅里不干活（没进对局）"
@@ -561,7 +562,7 @@ local function rageFire()
     local standMode = (CFG.wallbangMode == "stand")
 
     -- 穿墙的真正开关：把物理复制根挂到目标命中盒（服务端算射线时认为你贴着他）
-    if myRoot0 and CFG.repRoot and not moving then
+    if myRoot0 and CFG.repRoot and not moving and not force then
         local prevWallOK = setRepRoot(myRoot0, head)
         if prevWallOK then
             task.delay(math.clamp(CFG.repRootHoldDisp / 1000, 0.03, 0.6), function()
@@ -641,16 +642,14 @@ local function rageFire()
     return false
 end
 
---═══════════ RAGE 节奏机 ═══════════
--- 一轮：传送到目标 45 studs 内 → 打 1 秒 → 传送回原位 → 等 0.5 秒 → 重复
--- 目标死了/在大厅就重新选，选不到就干等。
+--═══════════ RAGE 节奏机：每 0.1 秒闪一个来回 ═══════════
+-- 一轮：闪到目标 1 格内 → 静默发包（视角不动）→ 立刻闪回原位 → 等 0.1 秒
+-- 1 格内不需要挂 rep-root（本来就贴着），所以这一路完全不碰物理参考点。
 local rageLocked = nil
-local ragePhase  = "idle"
 
 task.spawn(function()
     while true do
         if not rageOn then
-            ragePhase = "idle"
             rageLocked = nil
             if repRootActive and LP.Character then
                 local r0 = LP.Character:FindFirstChild("HumanoidRootPart")
@@ -659,20 +658,24 @@ task.spawn(function()
             end
             rageStatus = "待命"
             task.wait(0.15)
+
         elseif not inMatch() then
             rageStatus = "大厅里不干活（没进对局）"
             task.wait(0.3)
+
         else
             local alive = false
             if rageLocked then
                 local hum = humOf(rageLocked)
                 alive = (hum ~= nil and rageLocked.Character ~= nil)
             end
-            if not alive then rageLocked = nearestEnemy(CFG.maxDist) end
+            if not alive then
+                rageLocked = nearestEnemy(CFG.maxDist)
+            end
 
             if not rageLocked then
                 rageStatus = "没有目标"
-                task.wait(0.25)
+                task.wait(0.2)
             else
                 local _, ch = humOf(rageLocked)
                 local tHRP = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -681,33 +684,24 @@ task.spawn(function()
 
                 if not (tHRP and head and myRoot) then
                     rageLocked = nil
+                    task.wait(0.1)
                 else
                     local homeCF = myRoot.CFrame
                     local dir = myRoot.Position - tHRP.Position
                     dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
-                    local tpPos = tHRP.Position + dir * CFG.cycleTPDist + Vector3.new(0, 3, 0)
+                    local tpPos = tHRP.Position + dir * CFG.blinkTPDist + Vector3.new(0, CFG.blinkHeight, 0)
 
+                    -- 闪过去
                     setCF(myRoot, CFrame.lookAt(tpPos, head.Position))
-                    ragePhase = "firing"
+                    -- 静默开火：只把包写出去，本地视角一帧都没动
+                    rageFire(true)
+                    -- 闪回来
+                    setCF(myRoot, homeCF)
+                    if myRoot then pcall(function() myRoot.Velocity = Vector3.zero end) end
 
-                    local t0 = os.clock()
-                    while rageOn and os.clock() - t0 < CFG.cycleFireSec do
-                        rageFire()
-                        task.wait(CFG.rageDelay)
-                    end
-
-                    if CFG.cycleHomeBack and LP.Character then
-                        local r = LP.Character:FindFirstChild("HumanoidRootPart")
-                        if r then
-                            pcall(function()
-                                r.CFrame = homeCF
-                                r.Velocity = Vector3.zero
-                            end)
-                        end
-                    end
-                    ragePhase = "wait"
-                    rageStatus = "回原位，等下一轮"
-                    task.wait(CFG.cycleWaitSec)
+                    rageStatus = string.format("闪打 → %s (%.0f)", rageLocked.Name,
+                        (tHRP.Position - homeCF.Position).Magnitude)
+                    task.wait(CFG.blinkInterval)
                 end
             end
         end
