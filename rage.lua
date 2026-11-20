@@ -45,7 +45,7 @@ local CFG = {
     esp        = true,   -- ESP 透视
     wallbangMode = "stand",
     blinkTPDist  = 1.2,  -- 闪到目标多近（studs，1 格多）
-    blinkInterval = 0.1, -- 每多久闪一个来回
+    blinkInterval = 0.2, -- 每多久闪一个来回
     blinkHeight  = 2.5,  -- 闪现时的竖直偏移
     autoFire   = false,  -- 自动开火（无按钮，保留配置）
     fireWindow = 70,     -- 准星多少像素内有目标才开火
@@ -97,7 +97,7 @@ do
         CFG.repRoot = true
         CFG.repRootMaxDist = 60
         CFG.blinkTPDist = 1.2
-        CFG.blinkInterval = 0.1
+        CFG.blinkInterval = 0.2
         CFG.esp = true
         CFG.wallbangMode = "stand"
         CFG.rageDelay = 0.09
