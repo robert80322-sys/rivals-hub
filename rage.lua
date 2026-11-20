@@ -31,7 +31,7 @@ local CFG = {
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
-    repRootMaxDist = 200,-- 穿墙/desync 的最大距离
+    repRootMaxDist = 60, -- 用户实测能穿墙的范围（rep-root 生效区间）
     repRootHoldDisp = 80,  -- 复制根挂多久再摘（毫秒）
     flashTP   = false,   -- 闪身：先过去再打。默认关，之前它会把人送到地图外
     flashRange = 150,    -- 闪身最大距离
@@ -86,13 +86,13 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 10
+local CFG_VER = 11
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
-        CFG.repRootMaxDist = 200
+        CFG.repRootMaxDist = 60
         CFG.esp = true
         CFG.wallbangMode = "stand"
         CFG.rageDelay = 0.09
@@ -529,8 +529,10 @@ local function rageFire()
     local tPos   = root.Position
     local dist   = (tPos - myPos).Magnitude
 
-    if CFG.wallbangMode ~= "stand" and dist > CFG.repRootMaxDist then
-        rageStatus = string.format("太远(%.0f>%d)", dist, CFG.repRootMaxDist)
+    -- 不管哪种打法，超过 rep-root 有效范围就打不穿（用户实测 60 内才行）
+    if dist > CFG.repRootMaxDist then
+        rageStatus = string.format("太远(%.0f>%d) 超出穿墙范围", dist, CFG.repRootMaxDist)
+        dbg(string.format("skip: 距离%.0f > 穿墙范围%d", dist, CFG.repRootMaxDist))
         return false
     end
 
@@ -553,6 +555,17 @@ local function rageFire()
     local oldRot  = myRoot.RotVelocity
 
     local standMode = (CFG.wallbangMode == "stand")
+
+    -- 穿墙的真正开关：把物理复制根挂到目标命中盒（服务端算射线时认为你贴着他）
+    if myRoot0 and CFG.repRoot and not moving then
+        local prevWallOK = setRepRoot(myRoot0, head)
+        if prevWallOK then
+            task.delay(math.clamp(CFG.repRootHoldDisp / 1000, 0.03, 0.6), function()
+                local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                if r then pcall(function() setRepRoot(r, nil) end) end
+            end)
+        end
+    end
     if standMode then
         -- 人一步不动，但包里的射线起点写到目标旁边。
         -- 服务端自己算射线的话，只要它认这个起点，子弹就等于从目标身边射出 → 穿墙。
