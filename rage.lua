@@ -31,7 +31,7 @@ local CFG = {
     maxDist   = 1200,
     tpMaxDist = 1000,    -- 传送距离上限（studs）
     repRoot   = true,    -- 挂物理复制根（真穿墙）
-    repRootMaxDist = 60, -- 用户实测能穿墙的范围（rep-root 生效区间）
+    repRootMaxDist = 300,-- 穿墙范围（60 内最稳，越远越容易被服务端拉走）
     repRootHoldDisp = 80,  -- 复制根挂多久再摘（毫秒）
     flashTP   = false,   -- 闪身：先过去再打。默认关，之前它会把人送到地图外
     flashRange = 150,    -- 闪身最大距离
@@ -86,13 +86,13 @@ local function loadCfg()
 
 -- 旧存档会把新版默认值盖回去（比如 tpMaxDist=120、FIRE 键被挤到屏幕外），
 -- 这里按版本号做一次迁移，只做一次。
-local CFG_VER = 11
+local CFG_VER = 12
 do
     local ver = tonumber(CFG._cfgVer) or 0
     if ver < CFG_VER then
         CFG.tpMaxDist = 1000
         CFG.repRoot = true
-        CFG.repRootMaxDist = 60
+        CFG.repRootMaxDist = 300
         CFG.esp = true
         CFG.wallbangMode = "stand"
         CFG.rageDelay = 0.09
