@@ -22,6 +22,14 @@ if not LP then
     LP = Players.LocalPlayer
 end
 
+-- 诊断日志（不 hook、不改游戏，只写文件）
+local DBG = {}
+local function dbg(msg)
+    DBG[#DBG + 1] = os.date("%H:%M:%S") .. "  " .. tostring(msg)
+    if #DBG > 200 then table.remove(DBG, 1) end
+    pcall(function() if writefile then writefile("knife_debug.txt", table.concat(DBG, "\n")) end end)
+end
+
 local CFG = {
     holdSec    = 1.0,    -- 长按多久触发
     behindDist = 2.2,    -- 站到目标背后多远
@@ -153,18 +161,34 @@ local busy = false
 local status = "待命"
 
 local function backstab()
-    if busy then return end
-    if not RIVALS.ready then status = "缺游戏模块" return end
+    dbg("=== 触发背刺 ===")
+    if busy then dbg("  busy=true，跳过") return end
+    if not RIVALS.ready then
+        status = "缺游戏模块"
+        dbg("  缺模块 use=" .. tostring(RIVALS.use ~= nil)
+            .. " util=" .. tostring(RIVALS.util ~= nil)
+            .. " enums=" .. tostring(RIVALS.enums ~= nil))
+        return
+    end
 
     local item = equippedItem()
-    if not item then status = "拿不到武器" return end
+    if not item then
+        status = "拿不到武器"
+        dbg("  equippedItem=nil（FighterController.LocalFighter 没取到）")
+        return
+    end
+    dbg("  武器=" .. itemName(item) .. "  isKnife=" .. tostring(isKnife(item)))
     if not isKnife(item) then
         status = "手里不是刀：" .. itemName(item)
         return
     end
 
     local p = nearestEnemy(CFG.maxDist)
-    if not p then status = "附近没人" return end
+    if not p then
+        status = "附近没人"
+        dbg(string.format("  附近没人（范围 %d）", CFG.maxDist))
+        return
+    end
 
     local _, ch = humOf(p)
     if not ch then return end
@@ -174,7 +198,9 @@ local function backstab()
     if not (tHRP and head and myRoot) then return end
 
     local objId = item.Get and item:Get("ObjectID")
-    if not objId then status = "没有 ObjectID" return end
+    if not objId then status = "没有 ObjectID" dbg("  ObjectID=nil") return end
+    dbg(string.format("  目标=%s 距离=%.0f objId=%s(%s)",
+        p.Name, (tHRP.Position - myRoot.Position).Magnitude, tostring(objId), typeof(objId)))
 
     busy = true
     status = "重击背刺 " .. p.Name
@@ -213,11 +239,13 @@ local function backstab()
             nil
         )
     end)
+    dbg("  重击发包结果 ok=" .. tostring(okSwing) .. " " .. tostring(errSwing))
     if not okSwing then status = "重击失败：" .. tostring(errSwing) end
 
     -- 重击有 ~1.25s 冷却，出完刀停留一小会儿让包发出去再回原位
     task.wait(0.12)
 
+    dbg("  已回原位")
     -- ④ 回原位
     if CFG.backHome and LP.Character then
         local r = LP.Character:FindFirstChild("HumanoidRootPart")
@@ -285,33 +313,37 @@ do
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = stat
 end
 
-local holdAt = 0
-local holding = false
-local holdThread = nil
+local pressedAt = 0     -- 0 = 没按着
+local fired = false
 
 btn.InputBegan:Connect(function(i)
     if i.UserInputType == Enum.UserInputType.Touch
     or i.UserInputType == Enum.UserInputType.MouseButton1 then
-        holding = true
-        holdAt = os.clock()
+        pressedAt = os.clock()
+        fired = false
         btn.BackgroundTransparency = 0.42
-        if holdThread then task.cancel(holdThread) end
-        holdThread = task.spawn(function()
-            while holding and os.clock() - holdAt < CFG.holdSec do
-                task.wait(0.05)
-            end
-            if holding then
+        btn.Text = "按…"
+        dbg("按下开始计时")
+        task.spawn(function()
+            task.wait(CFG.holdSec)
+            if pressedAt > 0 and not fired and (os.clock() - pressedAt) >= CFG.holdSec - 0.06 then
+                fired = true
+                dbg("长按达成 → 执行")
                 btn.Text = "放!"
                 backstab()
                 btn.Text = "刀\n背刺"
+            else
+                dbg(string.format("长按没成 按住%.2fs（可能中途松手/被取消）", os.clock() - pressedAt))
             end
         end)
     end
 end)
 
 btn.InputEnded:Connect(function()
-    holding = false
+    if pressedAt > 0 then dbg(string.format("松开 共%.2fs", os.clock() - pressedAt)) end
+    pressedAt = 0
     btn.BackgroundTransparency = 0.72
+    btn.Text = "刀\n背刺"
 end)
 
 task.spawn(function()
