@@ -26,8 +26,7 @@ local CFG = {
     holdSec    = 1.0,    -- 长按多久触发
     behindDist = 2.2,    -- 站到目标背后多远
     maxDist    = 60,     -- 目标最远距离
-    swings     = 2,      -- 一轮砍几刀
-    swingGap   = 0.18,   -- 每刀间隔
+    swings     = 1,      -- 只出一次重击（右键），不再连砍
     backHome   = true,   -- 砍完回原位
 }
 
@@ -178,7 +177,7 @@ local function backstab()
     if not objId then status = "没有 ObjectID" return end
 
     busy = true
-    status = "背刺 " .. p.Name
+    status = "重击背刺 " .. p.Name
 
     local homeCF = myRoot.CFrame
     local tLook = tHRP.CFrame.LookVector      -- 目标面朝的方向
@@ -196,27 +195,28 @@ local function backstab()
     -- ② 闪到背后
     setCF(myRoot, standCF)
 
-    -- ③ 出刀
+    -- ③ 出刀：一次重击（右键）。刀的 "StartAiming" 就是重击入口，
+    --    轻击走的是 StartShooting，别搞混。
     local C1, C0, C2, C3 = string.char(1), string.char(0), string.char(2), string.char(3)
-    for i = 1, CFG.swings do
-        if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then break end
-        local aimCF = CFrame.lookAt(behindPos, head.Position)
-        local shot = {
-            [C0] = RIVALS.util:EncodeCFrame(aimCF),
-            [C1] = RIVALS.util:EncodeCFrame(head.CFrame),
-            [C2] = head,
-            [C3] = RIVALS.util:EncodeCFrame(CFrame.Angles(0, math.pi / 2, 0)),
-        }
-        pcall(function()
-            RIVALS.use:FireServer(
-                objId,
-                RIVALS.enums:ToEnum("StartAiming"),   -- 刀走 StartAiming
-                { [C1] = shot },
-                nil
-            )
-        end)
-        task.wait(CFG.swingGap)
-    end
+    local aimCF = CFrame.lookAt(behindPos, head.Position)
+    local shot = {
+        [C0] = RIVALS.util:EncodeCFrame(aimCF),
+        [C1] = RIVALS.util:EncodeCFrame(head.CFrame),
+        [C2] = head,
+        [C3] = RIVALS.util:EncodeCFrame(CFrame.Angles(0, math.pi / 2, 0)),
+    }
+    local okSwing, errSwing = pcall(function()
+        RIVALS.use:FireServer(
+            objId,
+            RIVALS.enums:ToEnum("StartAiming"),
+            { [C1] = shot },
+            nil
+        )
+    end)
+    if not okSwing then status = "重击失败：" .. tostring(errSwing) end
+
+    -- 重击有 ~1.25s 冷却，出完刀停留一小会儿让包发出去再回原位
+    task.wait(0.12)
 
     -- ④ 回原位
     if CFG.backHome and LP.Character then
@@ -278,7 +278,7 @@ stat.TextSize = 11
 stat.TextXAlignment = Enum.TextXAlignment.Left
 stat.TextYAlignment = Enum.TextYAlignment.Top
 stat.TextColor3 = Color3.fromRGB(200, 205, 220)
-stat.Text = "  按住 1 秒背刺"
+stat.Text = "  按住 1 秒：重击背刺"
 stat.ZIndex = 3000
 stat.Parent = gui
 do
@@ -329,4 +329,4 @@ getgenv().KnifeUnload = function()
     getgenv().KnifeUnload = nil
 end
 
-print("[KNIFE] 已加载 · 右侧红色键，长按 1 秒背刺")
+print("[KNIFE] 已加载 · 长按 1 秒：闪到背后出一次重击")
