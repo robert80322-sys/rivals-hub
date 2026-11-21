@@ -12,6 +12,7 @@ Roblox **Rivals** 的客户端脚本，面向**手机执行器**（Delta / Codex
 | `all.lua` | 先拉 Kicia 全套（含 ragebot）再拉本 hub | 想要完整功能 |
 | `rage.lua` | **独立多键版**：TP / AIM / RAGE / FIRE / SILENT / SPREAD / TEAM | 要全套 | 
 | `fire.lua` | **只有一个开关**：自动开火，屏幕上就一个 FIRE 圆键 | 只想要自动开火 |
+| `knife.lua` | **刀背刺**：拿刀时按住红键 1 秒 → 闪到目标背后 → 发背刺视角 → 出刀 → 回原位 | 专打背刺暴击 |
 
 ```lua
 -- 日常
