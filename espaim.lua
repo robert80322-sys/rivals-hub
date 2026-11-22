@@ -34,8 +34,9 @@ local CFG = {
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
     aimOn       = true,
     aimFOV      = 170,
-    aimSmoothYaw   = 0.42,  -- 左右追赶比例
-    aimSmoothPitch = 0.85,  -- 上下追赶比例（单独调，默认更狠）
+    aimSmoothYaw   = 0.24,  -- 左右追赶比例（越小越顺）
+    aimSmoothPitch = 0.52,  -- 上下追赶比例（比左右狠一点，但不硬锁）
+    aimSnapAngle   = 0.012, -- 差多少弧度才硬对齐（越小越不会"顿一下"）
     aimMaxDist  = 500,
     aimHoldSec  = 0.55,   -- 开火后锁多久
     teamCheck   = true,
@@ -438,15 +439,18 @@ if CFG.aimOn then
             local camPos = cam.CFrame.Position
             local goal = CFrame.lookAt(camPos, best.Position)
             local diff = (goal.LookVector - cam.CFrame.LookVector).Magnitude
-            if diff < 0.03 then
+            if diff < CFG.aimSnapAngle then
                 cam.CFrame = goal
             else
                 -- 左右 / 上下分开追：pitch 追得更快，抬头低头更跟手
                 local curPitch, curYaw = cam.CFrame:ToOrientation()
                 local goalPitch, goalYaw = goal:ToOrientation()
 
-                local aYaw   = math.clamp(1 - (1 - CFG.aimSmoothYaw)   ^ (dt * 60), 0.02, 1)
-                local aPitch = math.clamp(1 - (1 - CFG.aimSmoothPitch) ^ (dt * 60), 0.02, 1)
+                -- 指数平滑：alpha = 1 - e^(-k*dt)，手感比线性插值顺，且不受帧率影响
+                local kYaw   = -math.log(math.max(1 - CFG.aimSmoothYaw,   0.001))
+                local kPitch = -math.log(math.max(1 - CFG.aimSmoothPitch, 0.001))
+                local aYaw   = math.clamp(1 - math.exp(-kYaw   * dt), 0.02, 1)
+                local aPitch = math.clamp(1 - math.exp(-kPitch * dt), 0.02, 1)
 
                 local dy = goalYaw - curYaw
                 if dy > math.pi then dy = dy - math.pi * 2
