@@ -62,6 +62,8 @@ task.spawn(function()
     end)
 end)
 
+dbg("① 变量就绪", true)
+
 local moduleCache = {}
 local function findModule(name)
     if moduleCache[name] then return moduleCache[name] end
@@ -103,6 +105,8 @@ local function itemName(item)
     return tostring(n or "")
 end
 
+dbg("② 模块缓存就绪", true)
+
 local MELEE_WORDS = { "knife", "dagger", "blade", "bat", "sword", "axe", "hammer", "fist", "gauntlet" }
 
 local function isGun(item)
@@ -120,6 +124,8 @@ local function isSniper(item)
         or string.find(n, "awp", 1, true) ~= nil
         or string.find(n, "railgun", 1, true) ~= nil
 end
+
+dbg("③ 武器判定就绪", true)
 
 --═══════════ 队友 / 可见 ═══════════
 local function isAlly(p)
@@ -145,6 +151,8 @@ local function canSee(part, char, cam)
     return hit == nil or hit.Instance:IsDescendantOf(char)
 end
 
+dbg("④ 可见性就绪", true)
+
 --═══════════ 角色缓存 ═══════════
 local cache = {}
 local function refresh(p)
@@ -167,6 +175,8 @@ task.spawn(function()
         end
     end
 end)
+
+dbg("⑤ 角色缓存就绪", true)
 
 --═══════════ 强制鼠标位移 ═══════════
 -- 不发任何包，只把鼠标（视角）强行甩到目标头上。
@@ -203,16 +213,23 @@ local function mouseMoveTo(head)
 end
 
 --═══════════ 主循环：5 度内甩头 + 开枪 ═══════════
+dbg("⑥ 准备注册主循环", true)
+local loopStarted = false
+
 RunService.RenderStepped:Connect(function()
+    if not loopStarted then
+        loopStarted = true
+        dbg("⑦ 主循环第一次执行", true)
+    end
     if os.clock() < nextFire then return end
 
     local item = equippedItem()
     if not item then
-        if CFG.debug then dbg("拿不到武器（FighterController.LocalFighter）") end
+        dbg("拿不到武器（FighterController.LocalFighter 为 nil）", true)
         return
     end
     if not isGun(item) then
-        if CFG.debug then dbg("手里是近战：" .. itemName(item)) end
+        dbg("手里是近战：" .. itemName(item), true)
         return
     end
     local sniperMode = isSniper(item)
@@ -242,10 +259,8 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    if CFG.debug then
-        dbg(string.format("武器=%s 候选=%s 角度=%.1f°",
-            itemName(item), tostring(best ~= nil), math.deg(bestAngle)))
-    end
+    dbg(string.format("武器=%s 候选=%s 角度=%.1f°",
+        itemName(item), tostring(best ~= nil), math.deg(bestAngle)), true)
 
     if best then
         if CFG.mouseMode then
