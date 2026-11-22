@@ -44,7 +44,7 @@ local CFG = {
     showName    = true,
     colVisible  = Color3.fromRGB(255, 60, 60),   -- 能看见 = 红
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
-    aimOn       = true,
+    aimOn       = false,  -- 相机锁定：关掉，视角完全交给你自己
     aimFOV      = 170,
     -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
     aimCircleDeg   = 8,     -- 进入这个角度圈 = 开始精细锁头（圈外瞄身体、圈内上头）
@@ -463,7 +463,7 @@ if CFG.aimOn then
 end
 
 --═══════════ AIM（只在开火瞬间锁，且必须看得见） ═══════════
-if CFG.aimOn then
+if false and CFG.aimOn then
     RunService:BindToRenderStep("espaim_lock", Enum.RenderPriority.Camera.Value + 1, function(dt)
         if os.clock() > firingUntil then return end
 
@@ -715,6 +715,69 @@ RunService.RenderStepped:Connect(function()
     end
 
     lastPitch2, lastYaw2 = pitch, yaw
+end)
+
+--═══════════ 静默自瞄（唯一会动"视角"的东西，但只对服务端） ═══════════
+-- 本地相机完全不动，只往 UpdateCameraRotation 里塞朝向。
+-- 服务端大约只认单帧 ≤5° 的变化，所以每帧只推进 silentStepDeg。
+local silentSentYaw = nil
+
+task.spawn(function()
+    while true do
+        task.wait(1 / 60)
+        if not CFG.silentOn then silentSentYaw = nil 
+        elseif not RIVALS.cam or not RIVALS.util then
+            -- 接口没接上，静默干不了
+        elseif os.clock() > firingUntil then
+            silentSentYaw = nil                 -- 没在开火：跟着相机走，不发包
+        else
+            local cam = workspace.CurrentCamera
+            if cam then
+                local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                if myRoot then
+                    local vp = cam.ViewportSize
+                    local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+                    local best, bestScore = nil, math.huge
+
+                    for p, c in pairs(cache) do
+                        local head, hum = c.head, c.hum
+                        if head and hum and hum.Health > 0 and head.Parent and not isAlly(p) then
+                            if (head.Position - myRoot.Position).Magnitude <= CFG.aimMaxDist then
+                                local sp, on = cam:WorldToViewportPoint(head.Position)
+                                if on and sp.Z > 0 then
+                                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                                    if d <= CFG.aimFOV and d < bestScore then
+                                        if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
+                                            bestScore = d
+                                            best = head
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if best then
+                        local curYaw = select(2, cam.CFrame:ToOrientation())
+                        local _, yawGoal = CFrame.lookAt(cam.CFrame.Position, best.Position):ToOrientation()
+                        if silentSentYaw == nil then silentSentYaw = curYaw end
+
+                        local dy = yawGoal - silentSentYaw
+                        if dy > math.pi then dy = dy - math.pi * 2
+                        elseif dy < -math.pi then dy = dy + math.pi * 2 end
+
+                        local maxStep = math.rad(CFG.silentStepDeg)
+                        silentSentYaw = silentSentYaw + math.clamp(dy, -maxStep, maxStep)
+
+                        pcall(function()
+                            RIVALS.cam:FireServer(
+                                RIVALS.util:EncodeCameraRotation(Vector2.new(0, silentSentYaw)), nil)
+                        end)
+                    end
+                end
+            end
+        end
+    end
 end)
 
 print("[ESPAIM] 已加载 · 骨骼透视 + 开火瞬间锁头（无按钮）")
