@@ -50,8 +50,10 @@ local CFG = {
     springSpeed    = 38,    -- 频率：越大越快（临界阻尼下再快也不会抖）
     springDamper   = 1.0,   -- 1.0 = 临界阻尼：越快越要贴着这个值，别加
     aimSnapAngle   = 0.015, -- 差多少弧度就硬对齐（收尾更干脆）
-    -- 压枪
+    -- 压枪 / 后坐力清零
     recoilOn       = true,
+    zeroRecoil     = true,  -- 尝试直接把武器 Info 里的后坐力字段清零
+    logGunInfo     = true,  -- 把每把枪的后坐力参数写进 guninfo.txt
     recoilComp     = 1.0,   -- 后坐力补偿比例，1.0 = 完全抵消
     recoilYawComp  = 0.85,  -- 左右抖动补偿
     recoilEvery    = 2,     -- 每几帧算一次压枪
@@ -543,6 +545,65 @@ if CFG.aimOn then
         end
     end)
 end
+
+--═══════════ 武器后坐力：读参数 + 尝试清零 ═══════════
+-- Rivals 每把枪的后坐力存在 item.Info 里。先把所有相关字段抄下来（guninfo.txt），
+-- 再试着清零 —— 客户端能改的话就不用靠相机硬压了。
+local gunLog = {}
+local function logGun(line)
+    gunLog[#gunLog + 1] = line
+    if #gunLog > 200 then table.remove(gunLog, 1) end
+    pcall(function()
+        if writefile then writefile("guninfo.txt", table.concat(gunLog, "\n")) end
+    end)
+end
+
+local recoilKeys = { "recoil", "kick", "spread", "sway", "camera", "punch", "climb", "drift" }
+
+local function touchGunInfo(item)
+    local info = item and item.Info
+    if type(info) ~= "table" then return nil end
+    local found = {}
+    for k, v in pairs(info) do
+        local name = tostring(k)
+        local lk = string.lower(name)
+        local hit = false
+        for _, kw in ipairs(recoilKeys) do
+            if string.find(lk, kw, 1, true) then hit = true break end
+        end
+        if hit then
+            table.insert(found, name .. "=" .. tostring(v) .. "(" .. type(v) .. ")")
+            if CFG.zeroRecoil and type(v) == "number" and v ~= 0 then
+                pcall(function() info[k] = 0 end)
+            end
+        end
+    end
+    return found
+end
+
+task.spawn(function()
+    local lastItem = nil
+    while task.wait(1) do
+        local item = equippedItem()
+        if item and item ~= lastItem then
+            lastItem = item
+            local nm = ""
+            pcall(function() nm = item.Get and item:Get("Name") or "" end)
+            local found = touchGunInfo(item)
+            if found then
+                logGun(string.format("[%s] %s", tostring(nm), #found > 0
+                    and table.concat(found, "  ") or "（Info 里没有后坐力相关字段）"))
+                -- 顺便把全部字段名也列一遍，方便下次对照
+                local keys = {}
+                for k, v in pairs(item.Info) do
+                    if type(v) == "number" then table.insert(keys, tostring(k)) end
+                end
+                table.sort(keys)
+                logGun("    全部数值字段: " .. table.concat(keys, ", "))
+            end
+        end
+    end
+end)
 
 --═══════════ 压枪 ═══════════
 -- Roblox 客户端拿不到"后坐力原始数值"（那在内核里，只有外部读内存才能碰到），
