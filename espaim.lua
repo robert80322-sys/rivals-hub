@@ -55,7 +55,9 @@ local CFG = {
     recoilComp     = 0.65,  -- 后坐力补偿比例 0~1
     -- 静默自瞄
     silentOn       = true,
-    silentEvery    = 2,     -- 每几帧发一次视角包
+    silentEvery    = 1,     -- 每几帧发一次视角包
+    silentStepDeg  = 3.5,   -- 每次最多推进多少度（服务端大约只认 5 度内的变化）
+    silentRangeDeg = 120,   -- 静默最多覆盖多大角度（超过 120° 老老实实用相机）
     aimMaxDist  = 500,
     aimHoldSec  = 0.55,   -- 开火后锁多久
     teamCheck   = true,
@@ -400,6 +402,7 @@ end
 
 local vYaw, vPitch = 0, 0
 local aimLocked = false
+local sentYaw = nil      -- 已经上报给服务端的视角，逐帧往目标挪
 
 --═══════════ 开火检测（弹药变少 = 刚开了一枪） ═══════════
 local function findModule(name)
@@ -508,12 +511,30 @@ if CFG.aimOn then
                     * CFrame.Angles(newPitch, 0, 0)
             end
 
-            -- 静默：把"我正对着他"这个朝向单独发给服务端，本地画面不受影响
-            if CFG.silentOn and RIVALS.cam and RIVALS.util and (frame % CFG.silentEvery == 0) then
-                pcall(function()
-                    local _, yaw2 = goal:ToOrientation()
-                    RIVALS.cam:FireServer(RIVALS.util:EncodeCameraRotation(Vector2.new(0, yaw2)), nil)
-                end)
+            -- 静默：服务端只认"视角变化 ≤5°"的包，一次跨太多就丢。
+            -- 所以每帧只把上报视角往目标推 silentStepDeg，几帧之内平滑挪过去 ——
+            -- 这就是为什么近距离 100% 中、远角度全空。
+            if CFG.silentOn and RIVALS.cam and RIVALS.util then
+                local curYawNow = select(2, cam.CFrame:ToOrientation())
+                local _, yawGoal = goal:ToOrientation()
+
+                if sentYaw == nil then sentYaw = curYawNow end
+                if os.clock() > firingUntil then sentYaw = curYawNow end   -- 没在打就跟相机走
+
+                local dyS = yawGoal - sentYaw
+                if dyS > math.pi then dyS = dyS - math.pi * 2
+                elseif dyS < -math.pi then dyS = dyS + math.pi * 2 end
+
+                if math.abs(dyS) <= math.rad(CFG.silentRangeDeg) then
+                    local maxStep = math.rad(CFG.silentStepDeg)
+                    local step = math.clamp(dyS, -maxStep, maxStep)
+                    sentYaw = sentYaw + step
+                    if frame % CFG.silentEvery == 0 then
+                        pcall(function()
+                            RIVALS.cam:FireServer(RIVALS.util:EncodeCameraRotation(Vector2.new(0, sentYaw)), nil)
+                        end)
+                    end
+                end
             end
         else
             vYaw, vPitch = 0, 0
