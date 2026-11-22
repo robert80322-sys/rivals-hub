@@ -20,6 +20,13 @@ if not LP then
     LP = Players.LocalPlayer
 end
 
+local DBG = {}
+local function dbg(m)
+    DBG[#DBG + 1] = os.date("%H:%M:%S") .. " " .. tostring(m)
+    if #DBG > 120 then table.remove(DBG, 1) end
+    pcall(function() if writefile then writefile("sniper_debug.txt", table.concat(DBG, "\n")) end end)
+end
+
 local CFG = {
     snapDeg    = 5.0,    -- 准星多少度以内才触发
     cooldown   = 0.12,   -- 狙击：两次甩头之间的最小间隔
@@ -28,6 +35,7 @@ local CFG = {
     teamCheck  = true,
     visibleOnly= true,   -- 隔着墙不甩
     mouseMode  = true,   -- 强制鼠标位移（不发包 → 不会莫名其妙少子弹）
+    debug      = true,   -- 写 sniper_debug.txt
     fireAtAll  = false,  -- 只甩不打：玩家自己扣扳机，走游戏正常弹道
 }
 
@@ -157,8 +165,15 @@ end)
 --═══════════ 强制鼠标位移 ═══════════
 -- 不发任何包，只把鼠标（视角）强行甩到目标头上。
 -- 好处：子弹走游戏原生流程，打出去几颗就是几颗，不会出现"弹药少了但没伤害"。
+local MOVE = mousemoverel or MouseMoveRel or mouse_move_rel or mousemoverelo
+dbg("mousemoverel=" .. tostring(type(mousemoverel))
+    .. " MouseMoveRel=" .. tostring(type(MouseMoveRel)))
+
 local function mouseMoveTo(head)
-    if type(mousemoverel) ~= "function" then return false end
+    if type(MOVE) ~= "function" then
+        dbg("!! 没有可用的鼠标位移函数")
+        return false
+    end
     local cam = workspace.CurrentCamera
     if not cam then return false end
 
@@ -178,17 +193,23 @@ local function mouseMoveTo(head)
     local dx = dYaw * ppd
     local dy = -dPitch * ppd      -- 屏幕 Y 向下为正，pitch 向上是负
 
-    pcall(mousemoverel, dx, dy)
+    pcall(MOVE, dx, dy)
     return true
 end
 
 --═══════════ 主循环：5 度内甩头 + 开枪 ═══════════
 RunService.RenderStepped:Connect(function()
-    if not RIVALS.ready then return end
     if os.clock() < nextFire then return end
 
     local item = equippedItem()
-    if not item or not isGun(item) then return end
+    if not item then
+        if CFG.debug then dbg("拿不到武器（FighterController.LocalFighter）") end
+        return
+    end
+    if not isGun(item) then
+        if CFG.debug then dbg("手里是近战：" .. itemName(item)) end
+        return
+    end
     local sniperMode = isSniper(item)
 
     local cam = workspace.CurrentCamera
@@ -214,6 +235,11 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
+    end
+
+    if CFG.debug then
+        dbg(string.format("武器=%s 候选=%s 角度=%.1f°",
+            itemName(item), tostring(best ~= nil), math.deg(bestAngle)))
     end
 
     if best then
