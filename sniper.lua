@@ -178,6 +178,17 @@ end)
 
 dbg("⑤ 角色缓存就绪", true)
 
+--═══════════ 武器缓存（每 0.3 秒查一次，别每帧 require） ═══════════
+local cachedItem, cachedItemAt = nil, 0
+local function currentItem()
+    local now = os.clock()
+    if now - cachedItemAt > 0.3 then
+        cachedItemAt = now
+        cachedItem = equippedItem()
+    end
+    return cachedItem
+end
+
 --═══════════ 强制鼠标位移 ═══════════
 -- 不发任何包，只把鼠标（视角）强行甩到目标头上。
 -- 好处：子弹走游戏原生流程，打出去几颗就是几颗，不会出现"弹药少了但没伤害"。
@@ -223,13 +234,13 @@ RunService.RenderStepped:Connect(function()
     end
     if os.clock() < nextFire then return end
 
-    local item = equippedItem()
+    local item = currentItem()
     if not item then
-        dbg("拿不到武器（FighterController.LocalFighter 为 nil）", true)
+        dbg("拿不到武器（FighterController.LocalFighter 为 nil）")
         return
     end
     if not isGun(item) then
-        dbg("手里是近战：" .. itemName(item), true)
+        dbg("手里是近战：" .. itemName(item))
         return
     end
     local sniperMode = isSniper(item)
@@ -247,8 +258,11 @@ RunService.RenderStepped:Connect(function()
         local head, hum = c.head, c.hum
         if head and hum and hum.Health > 0 and head.Parent and not isAlly(p) then
             local toHead = head.Position - camPos
-            if toHead.Magnitude <= CFG.aimDist and toHead.Magnitude > 0.5 then
-                local angle = math.acos(math.clamp(look:Dot(toHead.Unit), -1, 1))
+            local dist2 = toHead.X*toHead.X + toHead.Y*toHead.Y + toHead.Z*toHead.Z
+            if dist2 <= CFG.aimDist * CFG.aimDist and dist2 > 0.25 then
+                local inv = 1 / math.sqrt(dist2)
+                local angle = math.acos(math.clamp(
+                    (look.X*toHead.X + look.Y*toHead.Y + look.Z*toHead.Z) * inv, -1, 1))
                 if angle <= bestAngle then
                     if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
                         bestAngle = angle
@@ -260,7 +274,7 @@ RunService.RenderStepped:Connect(function()
     end
 
     dbg(string.format("武器=%s 候选=%s 角度=%.1f°",
-        itemName(item), tostring(best ~= nil), math.deg(bestAngle)), true)
+        itemName(item), tostring(best ~= nil), math.deg(bestAngle)))
 
     if best then
         if CFG.mouseMode then
