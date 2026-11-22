@@ -800,10 +800,10 @@ local function installSilentHook()
             if CFG.silentOn and silentTarget and type(data) == "table" and RIVALS.util then
                 local ok2 = pcall(function()
                     -- 完全照开源 ragebot 的构造：
-                    --   [ ] aimCF        = 从"目标旁边"看向目标头（起点不能是相机，服务端会按墙挡）
-                    --   [] targetCF     = 目标头自己的 CFrame
-                    --   [] targetHead   = 目标部件
-                    --   [] headOffset   = 目标局部空间里的微小偏移
+                    --   [[0]] aimCF        = 从"目标旁边"看向目标头（起点不能是相机，服务端会按墙挡）
+                    --   [[1]] targetCF     = 目标头自己的 CFrame
+                    --   [[2]] targetHead   = 目标部件
+                    --   [[3]] headOffset   = 目标局部空间里的微小偏移
                     local C0, C1, C2, C3 = string.char(0), string.char(1), string.char(2), string.char(3)
                     local shot = data[C1]
                     if type(shot) == "table" then
