@@ -21,7 +21,11 @@ if not LP then
 end
 
 local DBG = {}
-local function dbg(m)
+local lastDbgAt = 0
+local function dbg(m, force)
+    local now = os.clock()
+    if not force and now - lastDbgAt < 2 then return end
+    lastDbgAt = now
     DBG[#DBG + 1] = os.date("%H:%M:%S") .. " " .. tostring(m)
     if #DBG > 120 then table.remove(DBG, 1) end
     pcall(function() if writefile then writefile("sniper_debug.txt", table.concat(DBG, "\n")) end end)
@@ -40,20 +44,22 @@ local CFG = {
 }
 
 --═══════════ 接口 ═══════════
+-- 注意：鼠标模式根本不需要这些远程，所以放到后台去等，别挡住主循环。
+-- 之前 WaitForChild 最长 15 秒，整个脚本就"没效果"了 15 秒。
 local RIVALS = { ready = false }
-pcall(function()
-    local rem = RS:WaitForChild("Remotes", 15)
-    local rep = rem and rem:WaitForChild("Replication", 10)
-    local fighter = rep and rep:WaitForChild("Fighter", 10)
-    if fighter then RIVALS.use = fighter:WaitForChild("UseItem", 10) end
-    local mods = RS:WaitForChild("Modules", 10)
-    local util = mods and mods:WaitForChild("Utility", 10)
-    local enums = mods and mods:WaitForChild("EnumLibrary", 10)
-    if util  then pcall(function() RIVALS.util  = require(util)  end) end
-    if enums then pcall(function() RIVALS.enums = require(enums) end) end
-    RIVALS.ready = (RIVALS.use and RIVALS.util and RIVALS.enums) ~= nil
-    print(string.format("[SNIPER] 接口 use=%s util=%s enums=%s",
-        tostring(RIVALS.use ~= nil), tostring(RIVALS.util ~= nil), tostring(RIVALS.enums ~= nil)))
+task.spawn(function()
+    pcall(function()
+        local rem = RS:WaitForChild("Remotes", 10)
+        local rep = rem and rem:WaitForChild("Replication", 5)
+        local fighter = rep and rep:WaitForChild("Fighter", 5)
+        if fighter then RIVALS.use = fighter:FindFirstChild("UseItem") end
+        local mods = RS:FindFirstChild("Modules")
+        local util = mods and mods:FindFirstChild("Utility")
+        local enums = mods and mods:FindFirstChild("EnumLibrary")
+        if util  then pcall(function() RIVALS.util  = require(util)  end) end
+        if enums then pcall(function() RIVALS.enums = require(enums) end) end
+        RIVALS.ready = true
+    end)
 end)
 
 local moduleCache = {}
@@ -166,8 +172,7 @@ end)
 -- 不发任何包，只把鼠标（视角）强行甩到目标头上。
 -- 好处：子弹走游戏原生流程，打出去几颗就是几颗，不会出现"弹药少了但没伤害"。
 local MOVE = mousemoverel or MouseMoveRel or mouse_move_rel or mousemoverelo
-dbg("mousemoverel=" .. tostring(type(mousemoverel))
-    .. " MouseMoveRel=" .. tostring(type(MouseMoveRel)))
+dbg("mousemoverel=" .. tostring(type(mousemoverel)) .. " MouseMoveRel=" .. tostring(type(MouseMoveRel)), true)
 
 local function mouseMoveTo(head)
     if type(MOVE) ~= "function" then
