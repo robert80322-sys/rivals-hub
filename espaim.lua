@@ -745,75 +745,79 @@ RunService.RenderStepped:Connect(function()
     lastPitch2, lastYaw2 = pitch, yaw
 end)
 
---═══════════ 静默自瞄（唯一会动"视角"的东西，但只对服务端） ═══════════
+--═══════════ 静默自瞄（hook UseItem，改包不改视角） ═══════════
+-- UpdateCameraRotation 只影响"别人看到你瞄哪"，不参与命中判定 —— 所以之前那版全空。
+-- 真正要让子弹拐弯，只能改玩家自己发出去的 UseItem 包，也就是 hook 它。
+-- 只 hook 这一个函数（不是 __namecall），开火时才进一次，不会卡。
 local SLOGS = {}
 local function slog(m)
     SLOGS[#SLOGS + 1] = os.date("%H:%M:%S") .. " " .. tostring(m)
-    if #SLOGS > 150 then table.remove(SLOGS, 1) end
+    if #SLOGS > 120 then table.remove(SLOGS, 1) end
     pcall(function() if writefile then writefile("silent_debug.txt", table.concat(SLOGS, "\n")) end end)
 end
-slog("静默模块启动  cam=" .. tostring(RIVALS.cam ~= nil) .. " util=" .. tostring(RIVALS.util ~= nil))
--- 本地相机完全不动，只往 UpdateCameraRotation 里塞朝向。
--- 服务端大约只认单帧 ≤5° 的变化，所以每帧只推进 silentStepDeg。
-local silentSentYaw = nil
 
-task.spawn(function()
-    while true do
-        task.wait(1 / 60)
-        if not CFG.silentOn then silentSentYaw = nil
-        elseif not RIVALS.cam or not RIVALS.util then
-            slog("!! 接口缺失 cam=" .. tostring(RIVALS.cam ~= nil) .. " util=" .. tostring(RIVALS.util ~= nil))
-        elseif (os.clock() > firingUntil) and (ammoSeen or not CFG.silentAlways) then
-            silentSentYaw = nil                 -- 没在开火（且开火检测可用）：不发包
-        else
-            local cam = workspace.CurrentCamera
-            if cam then
-                local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-                if myRoot then
-                    local vp = cam.ViewportSize
-                    local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
-                    local best, bestScore = nil, math.huge
+local silentTarget = nil     -- 每帧预选，hook 里直接用，别在 hook 里算
+local hookOK = false
 
-                    for p, c in pairs(cache) do
-                        local head, hum = c.head, c.hum
-                        if head and hum and hum.Health > 0 and head.Parent and not isAlly(p) then
-                            if (head.Position - myRoot.Position).Magnitude <= CFG.aimMaxDist then
-                                local sp, on = cam:WorldToViewportPoint(head.Position)
-                                if on and sp.Z > 0 then
-                                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                                    if d <= CFG.aimFOV and d < bestScore then
-                                        if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
-                                            bestScore = d
-                                            best = head
-                                        end
-                                    end
-                                end
-                            end
+-- 目标预选（和 ESP 同一套筛选）
+RunService.RenderStepped:Connect(function()
+    if not CFG.silentOn then silentTarget = nil return end
+    local cam = workspace.CurrentCamera
+    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not (cam and myRoot) then silentTarget = nil return end
+
+    local vp = cam.ViewportSize
+    local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+    local best, bestScore = nil, math.huge
+    for p, c in pairs(cache) do
+        local head, hum = c.head, c.hum
+        if head and hum and hum.Health > 0 and head.Parent and not isAlly(p) then
+            if (head.Position - myRoot.Position).Magnitude <= CFG.aimMaxDist then
+                local sp, on = cam:WorldToViewportPoint(head.Position)
+                if on and sp.Z > 0 then
+                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if d <= CFG.aimFOV and d < bestScore then
+                        if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
+                            bestScore = d
+                            best = head
                         end
-                    end
-
-                    if best then
-                        slog("锁到目标 yaw推进中")
-                        local curYaw = select(2, cam.CFrame:ToOrientation())
-                        local _, yawGoal = CFrame.lookAt(cam.CFrame.Position, best.Position):ToOrientation()
-                        if silentSentYaw == nil then silentSentYaw = curYaw end
-
-                        local dy = yawGoal - silentSentYaw
-                        if dy > math.pi then dy = dy - math.pi * 2
-                        elseif dy < -math.pi then dy = dy + math.pi * 2 end
-
-                        local maxStep = math.rad(CFG.silentStepDeg)
-                        silentSentYaw = silentSentYaw + math.clamp(dy, -maxStep, maxStep)
-
-                        pcall(function()
-                            RIVALS.cam:FireServer(
-                                RIVALS.util:EncodeCameraRotation(Vector2.new(0, silentSentYaw)), nil)
-                        end)
                     end
                 end
             end
         end
     end
+    silentTarget = best
 end)
+
+local function installSilentHook()
+    if hookOK then return end
+    if type(hookfunction) ~= "function" then
+        slog("执行器没有 hookfunction，静默用不了")
+        return
+    end
+    local ok, err = pcall(function()
+        local old = hookfunction(RIVALS.use.FireServer, function(self, objId, action, data, extra)
+            if CFG.silentOn and silentTarget and type(data) == "table" and RIVALS.util then
+                local ok2 = pcall(function()
+                    local C0, C1, C2 = string.char(0), string.char(1), string.char(2)
+                    local shot = data[C1]
+                    if type(shot) == "table" then
+                        local cam = workspace.CurrentCamera
+                        local cf = CFrame.new(cam.CFrame.Position, silentTarget.Position)
+                        shot[C0] = RIVALS.util:EncodeCFrame(cf)
+                        shot[C1] = RIVALS.util:EncodeCFrame(silentTarget.CFrame)
+                        shot[C2] = silentTarget
+                    end
+                end)
+                if ok2 then slog("改包 → 目标") end
+            end
+            return old(self, objId, action, data, extra)
+        end)
+        hookOK = true
+    end)
+    slog(hookOK and "静默 hook 已安装" or ("静默 hook 失败: " .. tostring(err)))
+end
+
+if CFG.silentOn then installSilentHook() end
 
 print("[ESPAIM] 已加载 · 骨骼透视 + 开火瞬间锁头（无按钮）")
