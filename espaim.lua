@@ -25,7 +25,8 @@ end
 local CFG = {
     espOn       = true,
     espMaxDist  = 900,
-    espRefresh  = 3,      -- 每几帧刷一次 ESP
+    espRefresh  = 1,      -- 1 = 每帧刷，位置跟角色完全同步
+    visRefresh  = 3,      -- 可见性(射线)每几帧算一次，结果缓存
     showBones   = true,
     showHealth  = true,
     showName    = true,
@@ -33,7 +34,7 @@ local CFG = {
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
     aimOn       = true,
     aimFOV      = 200,
-    aimSmooth   = 0.35,
+    aimSmooth   = 0.14,   -- 越小越平滑
     aimMaxDist  = 500,
     aimHoldSec  = 0.35,   -- 开火后锁多久
     teamCheck   = true,
@@ -71,11 +72,36 @@ local cache = {}
 local function refreshCache(p)
     local ch = p.Character
     if not ch then cache[p] = nil return end
+    local bones = {}
+    if ch:FindFirstChild("UpperTorso") then
+        for _, pair in ipairs({
+            {"Head","UpperTorso"},{"UpperTorso","LowerTorso"},
+            {"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"},
+            {"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},
+            {"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},
+            {"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},
+        }) do
+            local a, b = ch:FindFirstChild(pair[1]), ch:FindFirstChild(pair[2])
+            if a and b then bones[#bones + 1] = { a, b } end
+        end
+    elseif ch:FindFirstChild("Torso") then
+        for _, pair in ipairs({
+            {"Head","Torso"},{"Torso","Right Arm"},{"Torso","Left Arm"},
+            {"Torso","Right Leg"},{"Torso","Left Leg"},
+        }) do
+            local a, b = ch:FindFirstChild(pair[1]), ch:FindFirstChild(pair[2])
+            if a and b then bones[#bones + 1] = { a, b } end
+        end
+    end
+
     cache[p] = {
         char = ch,
         head = ch:FindFirstChild("Head"),
         hrp  = ch:FindFirstChild("HumanoidRootPart"),
         hum  = ch:FindFirstChildOfClass("Humanoid"),
+        bones = bones,
+        visible = false,
+        visAt = 0,
     }
 end
 
@@ -185,35 +211,38 @@ RunService.RenderStepped:Connect(function()
                 if onScreen and headPos.Z > 0 then
                     idx = idx + 1
                     local e = pool[idx] or newPool()
-                    local vis = canSee(head, ch, cam)
+                    local now = os.clock()
+                    if now - (c.visAt or 0) > (CFG.visRefresh / 60) then
+                        c.visible = canSee(head, ch, cam)
+                        c.visAt = now
+                    end
+                    local vis = c.visible
                     local col = vis and CFG.colVisible or CFG.colHidden
                     local drewAny = false
 
-                    -- 骨骼
+                    -- 骨骼（部件已经在缓存里，这里只做投影）
                     if CFG.showBones then
-                        local skel = ch:FindFirstChild("UpperTorso") and SKEL_R15 or SKEL_R6
-                        for i, pair in ipairs(skel) do
+                        local bl = c.bones
+                        for i = 1, MAXBONES do
                             local l = e.lines[i]
-                            local pa = ch:FindFirstChild(pair[1])
-                            local pb = ch:FindFirstChild(pair[2])
-                            if l and pa and pb then
-                                local sa, oka = cam:WorldToViewportPoint(pa.Position)
-                                local sb, okb = cam:WorldToViewportPoint(pb.Position)
-                                if oka and okb and sa.Z > 0 and sb.Z > 0 then
-                                    l.Visible = true
-                                    l.From = Vector2.new(sa.X, sa.Y)
-                                    l.To   = Vector2.new(sb.X, sb.Y)
-                                    l.Color = col
-                                    drewAny = true
+                            if l then
+                                local pair = bl and bl[i]
+                                if pair then
+                                    local sa, oka = cam:WorldToViewportPoint(pair[1].Position)
+                                    local sb, okb = cam:WorldToViewportPoint(pair[2].Position)
+                                    if oka and okb and sa.Z > 0 and sb.Z > 0 then
+                                        l.Visible = true
+                                        l.From = Vector2.new(sa.X, sa.Y)
+                                        l.To   = Vector2.new(sb.X, sb.Y)
+                                        l.Color = col
+                                        drewAny = true
+                                    else
+                                        l.Visible = false
+                                    end
                                 else
                                     l.Visible = false
                                 end
-                            elseif l then
-                                l.Visible = false
                             end
-                        end
-                        for i = #(ch:FindFirstChild("UpperTorso") and SKEL_R15 or SKEL_R6) + 1, MAXBONES do
-                            if e.lines[i] then e.lines[i].Visible = false end
                         end
                     end
 
@@ -221,7 +250,7 @@ RunService.RenderStepped:Connect(function()
                     local topY = headPos.Y
                     local botY = footPos.Y
                     local barH = math.clamp(math.abs(botY - topY), 20, 400)
-                    local bx = headPos.X - 30
+                    local bx = headPos.X - 22
                     if CFG.showHealth and hum.MaxHealth > 0 then
                         local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
                         e.hpBg.Visible = true
