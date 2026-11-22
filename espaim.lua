@@ -623,25 +623,35 @@ local function logGun(line)
     end)
 end
 
-local recoilKeys = { "recoil", "kick", "spread", "sway", "camera", "punch", "climb", "drift" }
+-- 这些是 guninfo.txt 里读回来的真实字段名（Rivals 的武器 Info 结构）
+local recoilKeys = {
+    "ShootRecoil",                      -- 后坐力主值
+    "ShootSpread",                      -- 静止扩散
+    "ShootSpreadPerVelocityUnit",       -- 移动中额外扩散
+    "ShootSpreadPerVelocityLimit",      -- 移动扩散上限
+    "AimSpreadMultiplier",              -- 开镜扩散倍率
+}
 
 local function touchGunInfo(item)
     local info = item and item.Info
     if type(info) ~= "table" then return nil end
     local found = {}
-    for k, v in pairs(info) do
-        local name = tostring(k)
-        local lk = string.lower(name)
-        local hit = false
-        for _, kw in ipairs(recoilKeys) do
-            if string.find(lk, kw, 1, true) then hit = true break end
-        end
-        if hit then
-            table.insert(found, name .. "=" .. tostring(v) .. "(" .. type(v) .. ")")
+    for _, key in ipairs(recoilKeys) do
+        local v = info[key]
+        if v ~= nil then
+            local before = tostring(v)
             if CFG.zeroRecoil and type(v) == "number" and v ~= 0 then
-                pcall(function() info[k] = 0 end)
+                local ok = pcall(function() info[key] = 0 end)
+                local after = ok and tostring(info[key]) or "改失败"
+                table.insert(found, string.format("%s %s→%s", key, before, after))
+            else
+                table.insert(found, string.format("%s=%s", key, before))
             end
         end
+    end
+    -- 相机位移后坐力是 Vector2(userdata)，单独探一下
+    if info.ShootCameraDisplacementRecoil ~= nil then
+        table.insert(found, "ShootCameraDisplacementRecoil=" .. tostring(info.ShootCameraDisplacementRecoil))
     end
     return found
 end
@@ -650,11 +660,12 @@ task.spawn(function()
     local lastItem = nil
     while task.wait(1) do
         local item = equippedItem()
-        if item and item ~= lastItem then
-            lastItem = item
+        if item then
+            local refresh = (item ~= lastItem)
+            if refresh then lastItem = item end
             local nm = ""
             pcall(function() nm = item.Get and item:Get("Name") or "" end)
-            local found = touchGunInfo(item)
+            local found = refresh and touchGunInfo(item) or nil
             if found then
                 logGun(string.format("[%s] %s", tostring(nm), #found > 0
                     and table.concat(found, "  ") or "（Info 里没有后坐力相关字段）"))
