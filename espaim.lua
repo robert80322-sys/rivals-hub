@@ -47,9 +47,9 @@ local CFG = {
     aimOn       = true,
     aimFOV      = 170,
     -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
-    springSpeed    = 24,    -- 频率：越大越快
-    springDamper   = 1.0,   -- 1.0 = 临界阻尼（不超调、不抖）
-    aimSnapAngle   = 0.008, -- 差多少弧度才硬对齐
+    springSpeed    = 38,    -- 频率：越大越快（临界阻尼下再快也不会抖）
+    springDamper   = 1.0,   -- 1.0 = 临界阻尼：越快越要贴着这个值，别加
+    aimSnapAngle   = 0.015, -- 差多少弧度就硬对齐（收尾更干脆）
     -- 压枪
     recoilOn       = true,
     recoilComp     = 1.0,   -- 后坐力补偿比例，1.0 = 完全抵消
