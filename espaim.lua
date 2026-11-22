@@ -69,6 +69,7 @@ local CFG = {
     recoilEvery    = 1,     -- 每帧都算，隔帧会抖
     -- 静默自瞄
     silentOn       = true,
+    silentAlways   = true,  -- 开火检测失败时也发静默（否则一发都不会生效）
     silentEvery    = 3,     -- 每几帧发一次视角包（每帧发会卡）
     silentStepDeg  = 4.2,   -- 每次最多推进多少度（贴着服务端 5° 上限走）
     silentRangeDeg = 360,   -- 静默覆盖角度，360 = 背后的人也能拐
@@ -447,6 +448,8 @@ end
 
 local firingUntil = 0
 local lastAmmo = nil
+local ammoSeen = false
+local ammoLogged = false
 
 if CFG.aimOn then
     task.spawn(function()
@@ -455,11 +458,21 @@ if CFG.aimOn then
             local ammo
             pcall(function() ammo = item and item.Get and item:Get("Ammo") end)
             if type(ammo) == "number" then
+                ammoSeen = true
                 if lastAmmo and ammo < lastAmmo then
                     firingUntil = os.clock() + CFG.aimHoldSec
                 end
                 lastAmmo = ammo
             else
+                if not ammoLogged then
+                    ammoLogged = true
+                    pcall(function()
+                        if writefile then
+                            writefile("silent_debug.txt", "读不到 Ammo 字段（item:Get(\"Ammo\") = " ..
+                                tostring(ammo) .. "），已退化为常驻静默")
+                        end
+                    end)
+                end
                 lastAmmo = nil
             end
         end
@@ -739,8 +752,8 @@ task.spawn(function()
         if not CFG.silentOn then silentSentYaw = nil
         elseif not RIVALS.cam or not RIVALS.util then
             slog("!! 接口缺失 cam=" .. tostring(RIVALS.cam ~= nil) .. " util=" .. tostring(RIVALS.util ~= nil))
-        elseif os.clock() > firingUntil then
-            silentSentYaw = nil                 -- 没在开火：跟着相机走，不发包
+        elseif (os.clock() > firingUntil) and (ammoSeen or not CFG.silentAlways) then
+            silentSentYaw = nil                 -- 没在开火（且开火检测可用）：不发包
         else
             local cam = workspace.CurrentCamera
             if cam then
