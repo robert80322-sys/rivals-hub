@@ -62,7 +62,7 @@ task.spawn(function()
     end)
 end)
 
-dbg("① 变量就绪", true)
+dbg("① 变量就绪 v3", true)
 
 local moduleCache = {}
 local function findModule(name)
@@ -287,4 +287,4 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
-print("[SNIPER] 已加载 · 所有枪：5° 内强制甩到头（不发包，子弹正常消耗）")
+print("[SNIPER v3] 已加载 · 所有枪 5° 甩头 · 不发包")
