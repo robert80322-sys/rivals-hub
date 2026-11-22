@@ -799,17 +799,33 @@ local function installSilentHook()
         local old = hookfunction(RIVALS.use.FireServer, function(self, objId, action, data, extra)
             if CFG.silentOn and silentTarget and type(data) == "table" and RIVALS.util then
                 local ok2 = pcall(function()
-                    local C0, C1, C2 = string.char(0), string.char(1), string.char(2)
+                    -- 完全照开源 ragebot 的构造：
+                    --   [ ] aimCF        = 从"目标旁边"看向目标头（起点不能是相机，服务端会按墙挡）
+                    --   [] targetCF     = 目标头自己的 CFrame
+                    --   [] targetHead   = 目标部件
+                    --   [] headOffset   = 目标局部空间里的微小偏移
+                    local C0, C1, C2, C3 = string.char(0), string.char(1), string.char(2), string.char(3)
                     local shot = data[C1]
                     if type(shot) == "table" then
-                        local cam = workspace.CurrentCamera
-                        local cf = CFrame.new(cam.CFrame.Position, silentTarget.Position)
-                        shot[C0] = RIVALS.util:EncodeCFrame(cf)
-                        shot[C1] = RIVALS.util:EncodeCFrame(silentTarget.CFrame)
+                        local targetPos = silentTarget.Position
+                        -- 站位取目标旁边一点（相当于"人在那儿"），不是相机位置
+                        local originPos = targetPos
+                            + Vector3.new(math.random(-20, 20) / 10, math.random(0, 20) / 10, math.random(-20, 20) / 10)
+                        local aimCF  = CFrame.lookAt(originPos, targetPos)
+                        local targetCF = silentTarget.CFrame
+                        local aimedPos = targetPos + Vector3.new(
+                            (math.random() - 0.5) * 0.1,
+                            (math.random() - 0.5) * 0.1,
+                            (math.random() - 0.5) * 0.1)
+                        local objSpaceHeadOffset = targetCF:ToObjectSpace(CFrame.new(aimedPos))
+
+                        shot[C0] = RIVALS.util:EncodeCFrame(aimCF)
+                        shot[C1] = RIVALS.util:EncodeCFrame(targetCF)
                         shot[C2] = silentTarget
+                        shot[C3] = RIVALS.util:EncodeCFrame(objSpaceHeadOffset)
                     end
                 end)
-                if ok2 then slog("改包 → 目标") end
+                if ok2 then slog("改包 → 目标（含 [\3] 偏移）") end
             end
             return old(self, objId, action, data, extra)
         end)
