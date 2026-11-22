@@ -21,11 +21,12 @@ end
 
 local CFG = {
     snapDeg    = 5.0,    -- 准星多少度以内才触发
-    cooldown   = 1.1,    -- 开枪后等多久（狙击上膛时间）
+    cooldown   = 0.12,   -- 两次甩头之间的最小间隔
     aimDist    = 800,    -- 目标最远距离
     teamCheck  = true,
     visibleOnly= true,   -- 隔着墙不甩
-    useStartAiming = true, -- 先发一次开镜，再开枪（狙通常需要）
+    mouseMode  = true,   -- 强制鼠标位移（不发包 → 不会莫名其妙少子弹）
+    fireAtAll  = false,  -- 只甩不打：玩家自己扣扳机，走游戏正常弹道
 }
 
 --═══════════ 接口 ═══════════
@@ -140,43 +141,32 @@ task.spawn(function()
     end
 end)
 
---═══════════ 开火 ═══════════
-local nextFire = 0
-
-local function fireAt(head)
-    local item = equippedItem()
-    if not item then return false end
-    local objId = item.Get and item:Get("ObjectID")
-    if not objId then return false end
-
+--═══════════ 强制鼠标位移 ═══════════
+-- 不发任何包，只把鼠标（视角）强行甩到目标头上。
+-- 好处：子弹走游戏原生流程，打出去几颗就是几颗，不会出现"弹药少了但没伤害"。
+local function mouseMoveTo(head)
+    if type(mousemoverel) ~= "function" then return false end
     local cam = workspace.CurrentCamera
-    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    local originPos = myRoot and (myRoot.Position + Vector3.new(0, 1.5, 0)) or cam.CFrame.Position
-    local targetPos = head.Position
+    if not cam then return false end
 
-    local aimCF  = CFrame.lookAt(originPos, targetPos)
-    local targetCF = head.CFrame
-    local objSpace = targetCF:ToObjectSpace(CFrame.new(targetPos))
+    local goal = CFrame.lookAt(cam.CFrame.Position, head.Position)
+    local tPitch, tYaw = goal:ToOrientation()
+    local cPitch, cYaw = cam.CFrame:ToOrientation()
 
-    local C0, C1, C2, C3 = string.char(0), string.char(1), string.char(2), string.char(3)
-    local shot = {
-        [C0] = RIVALS.util:EncodeCFrame(aimCF),
-        [C1] = RIVALS.util:EncodeCFrame(targetCF),
-        [C2] = head,
-        [C3] = RIVALS.util:EncodeCFrame(objSpace),
-    }
-    local data = { [C1] = shot, [C2] = true }
+    local dYaw = tYaw - cYaw
+    if dYaw > math.pi then dYaw = dYaw - math.pi * 2
+    elseif dYaw < -math.pi then dYaw = dYaw + math.pi * 2 end
+    local dPitch = tPitch - cPitch
 
-    local ok = true
-    if CFG.useStartAiming then
-        ok = pcall(function()
-            RIVALS.use:FireServer(objId, RIVALS.enums:ToEnum("StartAiming"), data, nil)
-        end)
-    end
-    pcall(function()
-        RIVALS.use:FireServer(objId, RIVALS.enums:ToEnum("StartShooting"), data, nil)
-    end)
-    return ok
+    -- 角度 → 像素：屏幕半高 / tan(FOV/2)
+    local vp = cam.ViewportSize
+    local ppd = (vp.Y * 0.5) / math.tan(math.rad(cam.FieldOfView) * 0.5)
+
+    local dx = dYaw * ppd
+    local dy = -dPitch * ppd      -- 屏幕 Y 向下为正，pitch 向上是负
+
+    pcall(mousemoverel, dx, dy)
+    return true
 end
 
 --═══════════ 主循环：5 度内甩头 + 开枪 ═══════════
@@ -213,9 +203,12 @@ RunService.RenderStepped:Connect(function()
     end
 
     if best then
-        -- 硬甩：不做任何插值，直接指过去
-        cam.CFrame = CFrame.lookAt(cam.CFrame.Position, best.Position)
-        fireAt(best)
+        if CFG.mouseMode then
+            -- 强制鼠标甩到头，不开枪，让玩家自己扣扳机
+            mouseMoveTo(best)
+        else
+            cam.CFrame = CFrame.lookAt(cam.CFrame.Position, best.Position)
+        end
         nextFire = os.clock() + CFG.cooldown
     end
 end)
