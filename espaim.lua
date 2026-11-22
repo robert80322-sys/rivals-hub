@@ -33,10 +33,10 @@ local CFG = {
     colVisible  = Color3.fromRGB(255, 60, 60),   -- 能看见 = 红
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
     aimOn       = true,
-    aimFOV      = 200,
-    aimSmooth   = 0.14,   -- 越小越平滑
+    aimFOV      = 170,
+    aimSmooth   = 0.42,   -- 每帧追赶比例，越大越快
     aimMaxDist  = 500,
-    aimHoldSec  = 0.35,   -- 开火后锁多久
+    aimHoldSec  = 0.55,   -- 开火后锁多久
     teamCheck   = true,
     visibleOnly = true,   -- 隔墙不锁
 }
@@ -373,8 +373,13 @@ if CFG.aimOn then
 
         if best then
             local goal = CFrame.lookAt(cam.CFrame.Position, best.Position)
-            local alpha = 1 - (1 - CFG.aimSmooth) ^ (dt * 60)
-            cam.CFrame = cam.CFrame:Lerp(goal, math.clamp(alpha, 0.02, 1))
+            local diff = (goal.LookVector - cam.CFrame.LookVector).Magnitude
+            if diff < 0.03 then
+                cam.CFrame = goal          -- 已经很近，直接对齐，不再慢慢蹭
+            else
+                local alpha = 1 - (1 - CFG.aimSmooth) ^ (dt * 60)
+                cam.CFrame = cam.CFrame:Lerp(goal, math.clamp(alpha, 0.05, 1))
+            end
         end
     end)
 end
