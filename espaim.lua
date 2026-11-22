@@ -57,7 +57,7 @@ local CFG = {
     approachGain   = 8,     -- 多快进入加速状态
     tremor         = 0.00035, -- 生理抖动幅度（弧度），0 = 关掉
     -- 压枪 / 后坐力清零
-    recoilOn       = true,
+    recoilOn       = false,  -- 压枪关掉：和自瞄一起改 CFrame 就是抖的根源
     zeroRecoil     = true,  -- 尝试直接把武器 Info 里的后坐力字段清零
     logGunInfo     = true,  -- 把每把枪的后坐力参数写进 guninfo.txt
     recoilComp     = 1.0,   -- 后坐力补偿比例，1.0 = 完全抵消
