@@ -24,13 +24,17 @@ end
 --═══════════ Rivals 原生接口（静默自瞄要用） ═══════════
 local RIVALS = { cam = nil, util = nil }
 pcall(function()
-    local rem = RS:FindFirstChild("Remotes")
-    local rep = rem and rem:FindFirstChild("Replication")
-    local fighter = rep and rep:FindFirstChild("Fighter")
-    if fighter then RIVALS.cam = fighter:FindFirstChild("UpdateCameraRotation") end
-    local mods = RS:FindFirstChild("Modules")
-    local util = mods and mods:FindFirstChild("Utility")
+    local rem = RS:WaitForChild("Remotes", 15)
+    local rep = rem and rem:WaitForChild("Replication", 10)
+    local fighter = rep and rep:WaitForChild("Fighter", 10)
+    if fighter then
+        RIVALS.cam = fighter:WaitForChild("UpdateCameraRotation", 10)
+    end
+    local mods = RS:WaitForChild("Modules", 10)
+    local util = mods and mods:WaitForChild("Utility", 10)
     if util then pcall(function() RIVALS.util = require(util) end) end
+    print(string.format("[ESPAIM] 接口: cam=%s util=%s",
+        tostring(RIVALS.cam ~= nil), tostring(RIVALS.util ~= nil)))
 end)
 
 --═══════════ 参数 ═══════════
@@ -718,6 +722,13 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --═══════════ 静默自瞄（唯一会动"视角"的东西，但只对服务端） ═══════════
+local SLOGS = {}
+local function slog(m)
+    SLOGS[#SLOGS + 1] = os.date("%H:%M:%S") .. " " .. tostring(m)
+    if #SLOGS > 150 then table.remove(SLOGS, 1) end
+    pcall(function() if writefile then writefile("silent_debug.txt", table.concat(SLOGS, "\n")) end end)
+end
+slog("静默模块启动  cam=" .. tostring(RIVALS.cam ~= nil) .. " util=" .. tostring(RIVALS.util ~= nil))
 -- 本地相机完全不动，只往 UpdateCameraRotation 里塞朝向。
 -- 服务端大约只认单帧 ≤5° 的变化，所以每帧只推进 silentStepDeg。
 local silentSentYaw = nil
@@ -725,9 +736,9 @@ local silentSentYaw = nil
 task.spawn(function()
     while true do
         task.wait(1 / 60)
-        if not CFG.silentOn then silentSentYaw = nil 
+        if not CFG.silentOn then silentSentYaw = nil
         elseif not RIVALS.cam or not RIVALS.util then
-            -- 接口没接上，静默干不了
+            slog("!! 接口缺失 cam=" .. tostring(RIVALS.cam ~= nil) .. " util=" .. tostring(RIVALS.util ~= nil))
         elseif os.clock() > firingUntil then
             silentSentYaw = nil                 -- 没在开火：跟着相机走，不发包
         else
@@ -758,6 +769,7 @@ task.spawn(function()
                     end
 
                     if best then
+                        slog("锁到目标 yaw推进中")
                         local curYaw = select(2, cam.CFrame:ToOrientation())
                         local _, yawGoal = CFrame.lookAt(cam.CFrame.Position, best.Position):ToOrientation()
                         if silentSentYaw == nil then silentSentYaw = curYaw end
