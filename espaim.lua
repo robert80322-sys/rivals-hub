@@ -41,14 +41,76 @@ local CFG = {
     visibleOnly = true,   -- 隔墙不锁
 }
 
---═══════════ 队友 ═══════════
+--═══════════ 队友识别 ═══════════
+-- 三层：
+--   ① DuelController 里的 Dueler TeamID（对局中最准，开源 ragebot 就用这个）
+--   ② Player.Team 对象 / TeamID 属性（空串不算）
+--   ③ 手动名单（getgenv().ESPAIM_Ally(userId, true)）
+local allyIds = {}
+local duelTeam = {}     -- [player] = teamId
+
+local function findModuleEarly(name)
+    local ps = LP:FindFirstChild("PlayerScripts")
+    for _, root in ipairs({ ps, RS }) do
+        if root then
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("ModuleScript") and d.Name == name then return d end
+            end
+        end
+    end
+    return nil
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        local newMap = {}
+        pcall(function()
+            local mod = findModuleEarly("SpectateController")
+            if not mod then return end
+            local SC = require(mod)
+            local duel = SC and SC.CurrentDuelSubject
+            if not duel then return end
+            local duelers = duel.Duelers
+            if not duelers then return end
+            for _, dueler in ipairs(duelers) do
+                local plr = dueler.Player
+                if plr then
+                    local tid
+                    pcall(function() tid = dueler:Get("TeamID") end)
+                    if tid ~= nil and tid ~= "" then newMap[plr] = tid end
+                end
+            end
+        end)
+        if next(newMap) then duelTeam = newMap end
+    end
+end)
+
 local function isAlly(p)
     if p == LP then return true end
+    if allyIds[p.UserId] then return true end
     if not CFG.teamCheck then return false end
+
+    -- ① 对局里的队伍表
+    local mine = duelTeam[LP]
+    if mine ~= nil and duelTeam[p] ~= nil then
+        return mine == duelTeam[p]
+    end
+
+    -- ② Team 对象 / TeamID 属性（空串忽略，否则一屋子人都被当成队友）
     if p.Team ~= nil and LP.Team ~= nil and p.Team == LP.Team then return true end
     local a, b = p:GetAttribute("TeamID"), LP:GetAttribute("TeamID")
-    if a ~= nil and b ~= nil then return a == b end
+    if type(a) == "string" and type(b) == "string" and a ~= "" and b ~= "" then
+        return a == b
+    end
+    local pa, pb = p:GetAttribute("PartyId"), LP:GetAttribute("PartyId")
+    if type(pa) == "string" and type(pb) == "string" and pa ~= "" and pa == pb then
+        return true
+    end
     return false
+end
+
+getgenv().ESPAIM_Ally = function(userId, on)
+    if on == false then allyIds[userId] = nil else allyIds[tonumber(userId) or userId] = true end
 end
 
 --═══════════ 可见性 ═══════════
