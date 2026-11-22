@@ -1,9 +1,10 @@
 --[[
 ════════════════════════════════════════════════════════════
-  SNIPER · 5 度自动甩狙
-    只在手里拿狙时工作：
-      准星 5° 内出现敌人 → 瞬间甩到头上 → 直接开枪
-    不插值、不弹簧，就是硬甩，要的就是快。
+  SNIPER · 5 度强制甩头（所有枪通用）
+    手里是任意枪械（刀/近战自动跳过）：
+      准星 5° 内出现敌人 → 强制鼠标位移到头上
+    不发任何包 → 子弹走游戏原生流程，不会莫名其妙少子弹。
+    狙：甩完等你扣扳机；连发：每帧都跟着头，准星像被吸住。
 
     loadstring(game:HttpGet("https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/sniper.lua?t=" .. os.time()))()
 ════════════════════════════════════════════════════════════
@@ -21,7 +22,8 @@ end
 
 local CFG = {
     snapDeg    = 5.0,    -- 准星多少度以内才触发
-    cooldown   = 0.12,   -- 两次甩头之间的最小间隔
+    cooldown   = 0.12,   -- 狙击：两次甩头之间的最小间隔
+    autoCd     = 0.0,    -- 连发枪：0 = 每帧都跟（准星被吸住的感觉）
     aimDist    = 800,    -- 目标最远距离
     teamCheck  = true,
     visibleOnly= true,   -- 隔着墙不甩
@@ -85,6 +87,17 @@ local function itemName(item)
     pcall(function() n = item and item.Get and item:Get("Name") end)
     if not n then pcall(function() n = item and item.Name end) end
     return tostring(n or "")
+end
+
+local MELEE_WORDS = { "knife", "dagger", "blade", "bat", "sword", "axe", "hammer", "fist", "gauntlet" }
+
+local function isGun(item)
+    local n = string.lower(itemName(item))
+    if n == "" then return false end
+    for _, w in ipairs(MELEE_WORDS) do
+        if string.find(n, w, 1, true) then return false end
+    end
+    return true
 end
 
 local function isSniper(item)
@@ -175,7 +188,8 @@ RunService.RenderStepped:Connect(function()
     if os.clock() < nextFire then return end
 
     local item = equippedItem()
-    if not item or not isSniper(item) then return end
+    if not item or not isGun(item) then return end
+    local sniperMode = isSniper(item)
 
     local cam = workspace.CurrentCamera
     local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -209,8 +223,8 @@ RunService.RenderStepped:Connect(function()
         else
             cam.CFrame = CFrame.lookAt(cam.CFrame.Position, best.Position)
         end
-        nextFire = os.clock() + CFG.cooldown
+        nextFire = os.clock() + (sniperMode and CFG.cooldown or CFG.autoCd)
     end
 end)
 
-print("[SNIPER] 已加载 · 持狙时 5° 内自动甩头开枪")
+print("[SNIPER] 已加载 · 所有枪：5° 内强制甩到头（不发包，子弹正常消耗）")
