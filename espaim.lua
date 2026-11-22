@@ -47,9 +47,12 @@ local CFG = {
     aimOn       = true,
     aimFOV      = 170,
     -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
-    springSpeed    = 38,    -- 频率：越大越快（临界阻尼下再快也不会抖）
-    springDamper   = 1.0,   -- 1.0 = 临界阻尼：越快越要贴着这个值，别加
-    aimSnapAngle   = 0.015, -- 差多少弧度就硬对齐（收尾更干脆）
+    springSpeed    = 34,    -- 基础频率
+    springDamper   = 0.9,   -- 略微欠阻尼 → 有一点点"手"的过冲，不做完美机器
+    aimSnapAngle   = 0.002, -- 几乎不硬跳（之前 0.015 那一下就是"咔"的来源）
+    approachBoost  = 2.6,   -- 离得远时额外加速的倍率上限
+    approachGain   = 8,     -- 多快进入加速状态
+    tremor         = 0.00035, -- 生理抖动幅度（弧度），0 = 关掉
     -- 压枪 / 后坐力清零
     recoilOn       = true,
     zeroRecoil     = true,  -- 尝试直接把武器 Info 里的后坐力字段清零
@@ -501,8 +504,22 @@ if CFG.aimOn then
             elseif dy < -math.pi then dy = dy + math.pi * 2 end
             goalYaw = curYaw + dy
 
-            local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   CFG.springSpeed,        CFG.springDamper, dt)
-            local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, CFG.springSpeed * 1.35, CFG.springDamper, dt)
+            -- 人手的特征：离得远甩得快、快到目标时自然收力
+            local gap = math.abs(goalYaw - curYaw) + math.abs(goalPitch - curPitch)
+            local boost = 1 + math.min(gap * CFG.approachGain, CFG.approachBoost)
+
+            local speedYaw   = CFG.springSpeed * boost
+            local speedPitch = CFG.springSpeed * boost * 1.3
+
+            local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   speedYaw,   CFG.springDamper, dt)
+            local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, speedPitch, CFG.springDamper, dt)
+
+            -- 极轻的手抖：让轨迹不是一条数学上的完美曲线
+            if CFG.tremor > 0 then
+                local t2 = os.clock() * 11
+                newYaw   = newYaw   + math.sin(t2 * 1.7) * CFG.tremor
+                newPitch = newPitch + math.sin(t2 * 2.3 + 1.1) * CFG.tremor * 0.7
+            end
             vYaw, vPitch = newVYaw, newVPitch
 
             if math.abs(goalYaw - newYaw) < CFG.aimSnapAngle
