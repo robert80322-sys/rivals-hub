@@ -62,7 +62,7 @@ local CFG = {
     logGunInfo     = true,  -- 把每把枪的后坐力参数写进 guninfo.txt
     recoilComp     = 1.0,   -- 后坐力补偿比例，1.0 = 完全抵消
     recoilYawComp  = 0.85,  -- 左右抖动补偿
-    recoilEvery    = 2,     -- 每几帧算一次压枪
+    recoilEvery    = 1,     -- 每帧都算，隔帧会抖
     -- 静默自瞄
     silentOn       = true,
     silentEvery    = 3,     -- 每几帧发一次视角包（每帧发会卡）
@@ -528,16 +528,24 @@ if CFG.aimOn then
             elseif dy < -math.pi then dy = dy + math.pi * 2 end
             goalYaw = curYaw + dy
 
+            -- 开火期间要稳：不加速、不过冲、不抖手。
+            -- 这时候后坐力在顶、自瞄在追，两边一夹就容易抖成筛子。
+            local firing = os.clock() < firingUntil
+
             local gap = math.abs(goalYaw - curYaw) + math.abs(goalPitch - curPitch)
             local boost = 1 + math.min(gap * CFG.approachGain, CFG.approachBoost)
+            if firing then boost = 1 end
 
-            local speedYaw   = baseSpeed * boost
-            local speedPitch = baseSpeed * boost * 1.2
+            local speedScale = firing and 0.55 or 1
+            local damperNow  = firing and 1.0 or CFG.springDamper
 
-            local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   speedYaw,   CFG.springDamper, dt)
-            local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, speedPitch, CFG.springDamper, dt)
+            local speedYaw   = baseSpeed * boost * speedScale
+            local speedPitch = baseSpeed * boost * 1.2 * speedScale
 
-            if CFG.tremor > 0 then
+            local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   speedYaw,   damperNow, dt)
+            local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, speedPitch, damperNow, dt)
+
+            if CFG.tremor > 0 and not firing then
                 local t2 = os.clock() * 11
                 newYaw   = newYaw   + math.sin(t2 * 1.7) * CFG.tremor
                 newPitch = newPitch + math.sin(t2 * 2.3 + 1.1) * CFG.tremor * 0.7
