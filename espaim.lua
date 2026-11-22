@@ -47,7 +47,10 @@ local CFG = {
     aimOn       = true,
     aimFOV      = 170,
     -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
-    springSpeed    = 34,    -- 基础频率
+    aimCircleDeg   = 8,     -- 进入这个角度圈 = 开始精细锁头（圈外瞄身体、圈内上头）
+    fastSpeed      = 50,    -- 圈外速度（甩得快）
+    slowSpeed      = 19,    -- 圈内速度（精调，慢一点才像人）
+    springSpeed    = 34,    -- 基础频率（下面两个会覆盖它）
     springDamper   = 0.9,   -- 略微欠阻尼 → 有一点点"手"的过冲，不做完美机器
     aimSnapAngle   = 0.002, -- 几乎不硬跳（之前 0.015 那一下就是"咔"的来源）
     approachBoost  = 2.6,   -- 离得远时额外加速的倍率上限
@@ -472,7 +475,7 @@ if CFG.aimOn then
         local vp = cam.ViewportSize
         local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
 
-        local best, bestScore = nil, math.huge
+        local best, bestScore, bestChar = nil, math.huge, nil
         for p, c in pairs(cache) do
             local head, hum, ch = c.head, c.hum, c.char
             if head and hum and hum.Health > 0 and head.Parent and not isAlly(p) then
@@ -485,6 +488,7 @@ if CFG.aimOn then
                             if (not CFG.visibleOnly) or canSee(head, ch, cam) then
                                 bestScore = d
                                 best = head
+                                bestChar = ch
                             end
                         end
                     end
@@ -495,7 +499,27 @@ if CFG.aimOn then
         aimLocked = (best ~= nil)
         if best then
             local camPos = cam.CFrame.Position
-            local goal = CFrame.lookAt(camPos, best.Position)
+            local bodyPart = bestChar and (bestChar:FindFirstChild("UpperTorso") or bestChar:FindFirstChild("HumanoidRootPart"))
+            local bodyPos = bodyPart and (bodyPart.Position + Vector3.new(0, 0.8, 0)) or best.Position
+
+            -- 当前准星离目标头还差多少角度
+            local toHead = best.Position - camPos
+            local angle = 0
+            if toHead.Magnitude > 0.01 then
+                angle = math.acos(math.clamp(cam.CFrame.LookVector:Dot(toHead.Unit), -1, 1))
+            end
+
+            -- 两段式：圈外先奔身体（快），进圈后转头上（慢、精细）
+            local aimPoint, baseSpeed
+            if angle > math.rad(CFG.aimCircleDeg) then
+                aimPoint  = bodyPos
+                baseSpeed = CFG.fastSpeed
+            else
+                aimPoint  = best.Position
+                baseSpeed = CFG.slowSpeed
+            end
+
+            local goal = CFrame.lookAt(camPos, aimPoint)
             local curPitch, curYaw = cam.CFrame:ToOrientation()
             local goalPitch, goalYaw = goal:ToOrientation()
 
@@ -504,22 +528,21 @@ if CFG.aimOn then
             elseif dy < -math.pi then dy = dy + math.pi * 2 end
             goalYaw = curYaw + dy
 
-            -- 人手的特征：离得远甩得快、快到目标时自然收力
             local gap = math.abs(goalYaw - curYaw) + math.abs(goalPitch - curPitch)
             local boost = 1 + math.min(gap * CFG.approachGain, CFG.approachBoost)
 
-            local speedYaw   = CFG.springSpeed * boost
-            local speedPitch = CFG.springSpeed * boost * 1.3
+            local speedYaw   = baseSpeed * boost
+            local speedPitch = baseSpeed * boost * 1.2
 
             local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   speedYaw,   CFG.springDamper, dt)
             local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, speedPitch, CFG.springDamper, dt)
 
-            -- 极轻的手抖：让轨迹不是一条数学上的完美曲线
             if CFG.tremor > 0 then
                 local t2 = os.clock() * 11
                 newYaw   = newYaw   + math.sin(t2 * 1.7) * CFG.tremor
                 newPitch = newPitch + math.sin(t2 * 2.3 + 1.1) * CFG.tremor * 0.7
             end
+
             vYaw, vPitch = newVYaw, newVPitch
 
             if math.abs(goalYaw - newYaw) < CFG.aimSnapAngle
