@@ -37,7 +37,7 @@ end)
 local CFG = {
     espOn       = true,
     espMaxDist  = 900,
-    espRefresh  = 1,      -- 1 = 每帧刷，位置跟角色完全同步
+    espRefresh  = 1,      -- ESP 每帧刷（这块不卡）
     visRefresh  = 3,      -- 可见性(射线)每几帧算一次，结果缓存
     showBones   = true,
     showHealth  = true,
@@ -52,10 +52,12 @@ local CFG = {
     aimSnapAngle   = 0.008, -- 差多少弧度才硬对齐
     -- 压枪
     recoilOn       = true,
-    recoilComp     = 0.65,  -- 后坐力补偿比例 0~1
+    recoilComp     = 1.0,   -- 后坐力补偿比例，1.0 = 完全抵消
+    recoilYawComp  = 0.85,  -- 左右抖动补偿
+    recoilEvery    = 2,     -- 每几帧算一次压枪
     -- 静默自瞄
     silentOn       = true,
-    silentEvery    = 1,     -- 每几帧发一次视角包
+    silentEvery    = 3,     -- 每几帧发一次视角包（每帧发会卡）
     silentStepDeg  = 3.5,   -- 每次最多推进多少度（服务端大约只认 5 度内的变化）
     silentRangeDeg = 120,   -- 静默最多覆盖多大角度（超过 120° 老老实实用相机）
     aimMaxDist  = 500,
@@ -543,11 +545,14 @@ if CFG.aimOn then
 end
 
 --═══════════ 压枪 ═══════════
--- 做法：盯着相机的 pitch，开火后游戏把它往上顶，就反向压回去。
--- 狙/左轮几乎不用压，霰弹/机枪要压得多一点。
-local lastPitch = nil
-local weaponFactor = 0.6
+-- Roblox 客户端拿不到"后坐力原始数值"（那在内核里，只有外部读内存才能碰到），
+-- 但能拿到相机被顶出来的角度。做法就是把每一帧被顶上去的量原样压回去 ——
+-- 补偿比例 1.0 时，枪口在世界坐标里基本不动。
+local lastPitch2, lastYaw2 = nil, nil
+local weaponFactor = 1.0
+local weaponYawFactor = 0.85
 local weaponName = ""
+local recoilFrame = 0
 
 task.spawn(function()
     while task.wait(0.5) do
@@ -556,32 +561,51 @@ task.spawn(function()
         pcall(function() n = item and item.Get and item:Get("Name") or "" end)
         weaponName = string.lower(tostring(n or ""))
         if string.find(weaponName, "sniper", 1, true) or string.find(weaponName, "revolver", 1, true) then
-            weaponFactor = 0.3
+            weaponFactor, weaponYawFactor = 0.7, 0.6
         elseif string.find(weaponName, "shotgun", 1, true) then
-            weaponFactor = 0.95
+            weaponFactor, weaponYawFactor = 1.0, 1.0
+        elseif string.find(weaponName, "wildcat", 1, true) then
+            weaponFactor, weaponYawFactor = 1.0, 0.9
         elseif string.find(weaponName, "smg", 1, true) or string.find(weaponName, "minigun", 1, true) then
-            weaponFactor = 0.8
+            weaponFactor, weaponYawFactor = 1.0, 1.0
         elseif weaponName == "" then
-            weaponFactor = 0
+            weaponFactor, weaponYawFactor = 0, 0
         else
-            weaponFactor = 0.6
+            weaponFactor, weaponYawFactor = 1.0, 0.85
         end
     end
 end)
 
 RunService.RenderStepped:Connect(function()
+    recoilFrame = recoilFrame + 1
+    if recoilFrame % CFG.recoilEvery ~= 0 then return end
+
     local cam = workspace.CurrentCamera
     if not cam then return end
-    local pitch = select(1, cam.CFrame:ToOrientation())
-    if CFG.recoilOn and not aimLocked and os.clock() < firingUntil and lastPitch and weaponFactor > 0 then
-        local delta = pitch - lastPitch
-        if delta > 0.0004 then                       -- 只压"往上抬"的那部分
-            local comp = delta * CFG.recoilComp * weaponFactor
-            cam.CFrame = cam.CFrame * CFrame.Angles(-comp, 0, 0)
-            pitch = select(1, cam.CFrame:ToOrientation())
+    local pitch, yaw = cam.CFrame:ToOrientation()
+
+    if CFG.recoilOn and not aimLocked and os.clock() < firingUntil
+    and lastPitch2 and weaponFactor > 0 then
+        local dPitch = pitch - lastPitch2
+        local dYaw   = yaw   - lastYaw2
+        if dYaw > math.pi then dYaw = dYaw - math.pi * 2
+        elseif dYaw < -math.pi then dYaw = dYaw + math.pi * 2 end
+
+        local compPitch = 0
+        local compYaw = 0
+        if dPitch > 0.0004 then compPitch = -dPitch * CFG.recoilComp * weaponFactor end
+        -- 横向抖动：只在幅度很小（1°以内）时算作后坐力，避免把玩家自己转身也吃掉
+        if math.abs(dYaw) > 0.0004 and math.abs(dYaw) < 0.018 then
+            compYaw = -dYaw * CFG.recoilYawComp * weaponYawFactor
+        end
+
+        if compPitch ~= 0 or compYaw ~= 0 then
+            cam.CFrame = cam.CFrame * CFrame.Angles(compPitch, compYaw, 0)
+            pitch, yaw = cam.CFrame:ToOrientation()
         end
     end
-    lastPitch = pitch
+
+    lastPitch2, lastYaw2 = pitch, yaw
 end)
 
 print("[ESPAIM] 已加载 · 骨骼透视 + 开火瞬间锁头（无按钮）")
