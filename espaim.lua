@@ -45,7 +45,7 @@ local CFG = {
     colVisible  = Color3.fromRGB(255, 60, 60),   -- 能看见 = 红
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
     aimOn       = false,  -- 相机锁定：关掉，视角完全交给你自己
-    aimFOV      = 170,
+    aimFOV      = 300,   -- 屏幕范围（像素半径），调大能锁更靠边的目标
     -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
     aimCircleDeg   = 8,     -- 进入这个角度圈 = 开始精细锁头（圈外瞄身体、圈内上头）
     fastSpeed      = 50,    -- 圈外速度（甩得快）
@@ -66,8 +66,8 @@ local CFG = {
     -- 静默自瞄
     silentOn       = true,
     silentEvery    = 3,     -- 每几帧发一次视角包（每帧发会卡）
-    silentStepDeg  = 3.5,   -- 每次最多推进多少度（服务端大约只认 5 度内的变化）
-    silentRangeDeg = 120,   -- 静默最多覆盖多大角度（超过 120° 老老实实用相机）
+    silentStepDeg  = 4.2,   -- 每次最多推进多少度（贴着服务端 5° 上限走）
+    silentRangeDeg = 360,   -- 静默覆盖角度，360 = 背后的人也能拐
     aimMaxDist  = 500,
     aimHoldSec  = 0.55,   -- 开火后锁多久
     teamCheck   = true,
