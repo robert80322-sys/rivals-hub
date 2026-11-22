@@ -21,6 +21,18 @@ if not LP then
     LP = Players.LocalPlayer
 end
 
+--═══════════ Rivals 原生接口（静默自瞄要用） ═══════════
+local RIVALS = { cam = nil, util = nil }
+pcall(function()
+    local rem = RS:FindFirstChild("Remotes")
+    local rep = rem and rem:FindFirstChild("Replication")
+    local fighter = rep and rep:FindFirstChild("Fighter")
+    if fighter then RIVALS.cam = fighter:FindFirstChild("UpdateCameraRotation") end
+    local mods = RS:FindFirstChild("Modules")
+    local util = mods and mods:FindFirstChild("Utility")
+    if util then pcall(function() RIVALS.util = require(util) end) end
+end)
+
 --═══════════ 参数 ═══════════
 local CFG = {
     espOn       = true,
@@ -34,9 +46,16 @@ local CFG = {
     colHidden   = Color3.fromRGB(60, 255, 120),  -- 被挡住 = 绿
     aimOn       = true,
     aimFOV      = 170,
-    aimSmoothYaw   = 0.24,  -- 左右追赶比例（越小越顺）
-    aimSmoothPitch = 0.52,  -- 上下追赶比例（比左右狠一点，但不硬锁）
-    aimSnapAngle   = 0.012, -- 差多少弧度才硬对齐（越小越不会"顿一下"）
+    -- 弹簧平滑（照 Kicia 的 critically damped spring 抄的），比线性插值自然得多
+    springSpeed    = 24,    -- 频率：越大越快
+    springDamper   = 1.0,   -- 1.0 = 临界阻尼（不超调、不抖）
+    aimSnapAngle   = 0.008, -- 差多少弧度才硬对齐
+    -- 压枪
+    recoilOn       = true,
+    recoilComp     = 0.65,  -- 后坐力补偿比例 0~1
+    -- 静默自瞄
+    silentOn       = true,
+    silentEvery    = 2,     -- 每几帧发一次视角包
     aimMaxDist  = 500,
     aimHoldSec  = 0.55,   -- 开火后锁多久
     teamCheck   = true,
@@ -354,6 +373,34 @@ RunService.RenderStepped:Connect(function()
     for i = idx + 1, #pool do hide(pool[i]) end
 end)
 
+--═══════════ 弹簧平滑（临界阻尼） ═══════════
+-- 和 Kicia 的 c5 Spring 同一个公式：给定 p0/v0/target/speed/damper，返回下一帧的 p 和 v。
+local function springStep(p0, v0, target, speed, damper, dt)
+    local t = speed * dt
+    local d = damper or 1
+    local d2 = d * d
+    local h, si, co
+    if d2 < 1 then
+        h = math.sqrt(1 - d2)
+        local ep = math.exp(-d * t) / h
+        co, si = ep * math.cos(h * t), ep * math.sin(h * t)
+    else
+        h = 1
+        local ep = math.exp(-d * t)
+        co, si = ep, ep * t
+    end
+    local a0 = h * co + d * si
+    local a1 = 1 - a0
+    local a2 = si / speed
+    local b0 = -speed * si
+    local b1 = speed * si
+    local b2 = h * co - d * si
+    return a0 * p0 + a1 * target + a2 * v0, b0 * p0 + b1 * target + b2 * v0
+end
+
+local vYaw, vPitch = 0, 0
+local aimLocked = false
+
 --═══════════ 开火检测（弹药变少 = 刚开了一枪） ═══════════
 local function findModule(name)
     local ps = LP:FindFirstChild("PlayerScripts")
@@ -435,36 +482,85 @@ if CFG.aimOn then
             end
         end
 
+        aimLocked = (best ~= nil)
         if best then
             local camPos = cam.CFrame.Position
             local goal = CFrame.lookAt(camPos, best.Position)
-            local diff = (goal.LookVector - cam.CFrame.LookVector).Magnitude
-            if diff < CFG.aimSnapAngle then
+            local curPitch, curYaw = cam.CFrame:ToOrientation()
+            local goalPitch, goalYaw = goal:ToOrientation()
+
+            local dy = goalYaw - curYaw
+            if dy > math.pi then dy = dy - math.pi * 2
+            elseif dy < -math.pi then dy = dy + math.pi * 2 end
+            goalYaw = curYaw + dy
+
+            local newYaw, newVYaw     = springStep(curYaw,   vYaw,   goalYaw,   CFG.springSpeed,        CFG.springDamper, dt)
+            local newPitch, newVPitch = springStep(curPitch, vPitch, goalPitch, CFG.springSpeed * 1.35, CFG.springDamper, dt)
+            vYaw, vPitch = newVYaw, newVPitch
+
+            if math.abs(goalYaw - newYaw) < CFG.aimSnapAngle
+            and math.abs(goalPitch - newPitch) < CFG.aimSnapAngle then
                 cam.CFrame = goal
+                vYaw, vPitch = 0, 0
             else
-                -- 左右 / 上下分开追：pitch 追得更快，抬头低头更跟手
-                local curPitch, curYaw = cam.CFrame:ToOrientation()
-                local goalPitch, goalYaw = goal:ToOrientation()
-
-                -- 指数平滑：alpha = 1 - e^(-k*dt)，手感比线性插值顺，且不受帧率影响
-                local kYaw   = -math.log(math.max(1 - CFG.aimSmoothYaw,   0.001))
-                local kPitch = -math.log(math.max(1 - CFG.aimSmoothPitch, 0.001))
-                local aYaw   = math.clamp(1 - math.exp(-kYaw   * dt), 0.02, 1)
-                local aPitch = math.clamp(1 - math.exp(-kPitch * dt), 0.02, 1)
-
-                local dy = goalYaw - curYaw
-                if dy > math.pi then dy = dy - math.pi * 2
-                elseif dy < -math.pi then dy = dy + math.pi * 2 end
-
-                local newYaw   = curYaw   + dy * aYaw
-                local newPitch = curPitch + (goalPitch - curPitch) * aPitch
-
                 cam.CFrame = CFrame.new(camPos)
                     * CFrame.Angles(0, newYaw, 0)
                     * CFrame.Angles(newPitch, 0, 0)
             end
+
+            -- 静默：把"我正对着他"这个朝向单独发给服务端，本地画面不受影响
+            if CFG.silentOn and RIVALS.cam and RIVALS.util and (frame % CFG.silentEvery == 0) then
+                pcall(function()
+                    local _, yaw2 = goal:ToOrientation()
+                    RIVALS.cam:FireServer(RIVALS.util:EncodeCameraRotation(Vector2.new(0, yaw2)), nil)
+                end)
+            end
+        else
+            vYaw, vPitch = 0, 0
         end
     end)
 end
+
+--═══════════ 压枪 ═══════════
+-- 做法：盯着相机的 pitch，开火后游戏把它往上顶，就反向压回去。
+-- 狙/左轮几乎不用压，霰弹/机枪要压得多一点。
+local lastPitch = nil
+local weaponFactor = 0.6
+local weaponName = ""
+
+task.spawn(function()
+    while task.wait(0.5) do
+        local item = equippedItem()
+        local n = ""
+        pcall(function() n = item and item.Get and item:Get("Name") or "" end)
+        weaponName = string.lower(tostring(n or ""))
+        if string.find(weaponName, "sniper", 1, true) or string.find(weaponName, "revolver", 1, true) then
+            weaponFactor = 0.3
+        elseif string.find(weaponName, "shotgun", 1, true) then
+            weaponFactor = 0.95
+        elseif string.find(weaponName, "smg", 1, true) or string.find(weaponName, "minigun", 1, true) then
+            weaponFactor = 0.8
+        elseif weaponName == "" then
+            weaponFactor = 0
+        else
+            weaponFactor = 0.6
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local pitch = select(1, cam.CFrame:ToOrientation())
+    if CFG.recoilOn and not aimLocked and os.clock() < firingUntil and lastPitch and weaponFactor > 0 then
+        local delta = pitch - lastPitch
+        if delta > 0.0004 then                       -- 只压"往上抬"的那部分
+            local comp = delta * CFG.recoilComp * weaponFactor
+            cam.CFrame = cam.CFrame * CFrame.Angles(-comp, 0, 0)
+            pitch = select(1, cam.CFrame:ToOrientation())
+        end
+    end
+    lastPitch = pitch
+end)
 
 print("[ESPAIM] 已加载 · 骨骼透视 + 开火瞬间锁头（无按钮）")
