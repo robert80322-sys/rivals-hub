@@ -73678,3 +73678,45 @@ function K.Unload()
 end
 
 tbl17.j1()(boot)
+
+--==========================================================================
+--  OREO 预设：加载完成后自动应用这组设置（可在菜单里随时再改）
+--==========================================================================
+task.spawn(function()
+    local ok, err = pcall(function()
+        task.wait(6)                       -- 等 Kicia 初始化与上次配置载入结束
+        local store = tbl17.bG()
+        local function set(path, value)
+            store:Set(path, value)         -- 走 ReactiveStore，会触发 UI 与逻辑更新
+        end
+
+        -- Aimbot：开，Spring 手感，速度 0.28
+        set({ "Aimbot", "Enabled" }, true)
+        set({ "Aimbot", "Mode", "Type" }, "Spring")
+        set({ "Aimbot", "Mode", "Speed" }, 0.28)
+        set({ "Aimbot", "Keybind", "Kind" }, "Always")
+
+        -- Silent Aim：开，几率 100%，范围 90px
+        set({ "SilentAim", "Enabled" }, true)
+        set({ "SilentAim", "ActivationChance" }, 100)
+        set({ "SilentAim", "Fov", "Radius" }, 90)
+        set({ "SilentAim", "Keybind", "Kind" }, "Always")
+
+        -- 敌人 ESP：主开关 + 敌人侧 + 框 / 血量 / 手持武器
+        set({ "Esp", "Main", "Enabled" }, true)
+        set({ "Esp", "Enemy", "Enabled" }, true)
+        set({ "Esp", "Enemy", "Box", "Enabled" }, true)
+        set({ "Esp", "Enemy", "HealthBar", "Enabled" }, true)
+        set({ "Esp", "Enemy", "HeldWeapon", "Enabled" }, true)
+
+        -- 手持武器 chams：Glass（游戏里的 Reflective 材质）+ 半透明
+        set({ "Chams", "Item", "Enabled" }, true)
+        set({ "Chams", "Item", "Material" }, "Reflective")
+        set({ "Chams", "Item", "Transparency" }, 0.6)
+
+        print("[OREO] 预设已应用：Aimbot(Spring 0.28) / Silent 100% 90px / 敌人 ESP(框·血·武器) / Glass 枪")
+    end)
+    if not ok then
+        warn("[OREO] 预设应用失败：" .. tostring(err))
+    end
+end)
