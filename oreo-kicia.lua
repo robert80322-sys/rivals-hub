@@ -18049,27 +18049,33 @@ local v120 = arg3:AddSection({ Title = "Whole-Menu Profiles", Side = v86[42] })
 local v121 = arg3:AddSection({ Title = "Transfer", Side = "right" })
 local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
 
-    --== OREO Cloud：整套参数存到云端（pastes.dev，免注册），换设备也能拉回来 ==
+    --== OREO Cloud：8 个固定槽位，选槽位存/读，启动自动加载所选槽位 ==
     local vCloud = arg3:AddSection({ Title = "Cloud (OREO)", Side = "right" })
-    local OREO_CLOUD_FILE = "kiciarebuild/oreo_cloud.txt"
+    local OREO_STATE_FILE = "kiciarebuild/oreo_cloud.json"
     local OREO_CLOUD_BASE = "https://api.pastes.dev/"
+    local HS = game:GetService("HttpService")
+    local cloudState = { slot = "1", auto = false, slots = {} }
+
+    local function cloudReadState()
+        local ok, raw = pcall(function() return readfile(OREO_STATE_FILE) end)
+        if not ok or type(raw) ~= "string" or raw == "" then return end
+        local ok2, decoded = pcall(function() return HS:JSONDecode(raw) end)
+        if ok2 and type(decoded) == "table" then
+            cloudState.slot = tostring(decoded.slot or "1")
+            cloudState.auto = decoded.auto == true
+            if type(decoded.slots) == "table" then cloudState.slots = decoded.slots end
+        end
+    end
+
+    local function cloudSaveState()
+        pcall(function()
+            writefile(OREO_STATE_FILE, HS:JSONEncode(cloudState))
+        end)
+    end
 
     local function oreoNotify(text)
         pcall(function() v116.get():Notify({ { Text = text } }) end)
         print("[OREO Cloud] " .. tostring(text))
-    end
-
-    local function oreoReadKey()
-        local ok, key = pcall(function() return readfile(OREO_CLOUD_FILE) end)
-        if ok and type(key) == "string" then
-            key = key:gsub("%s+", "")
-            if key ~= "" then return key end
-        end
-        return nil
-    end
-
-    local function oreoWriteKey(key)
-        pcall(function() writefile(OREO_CLOUD_FILE, key) end)
     end
 
     local function oreoHttp(opts)
@@ -18083,19 +18089,35 @@ local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
         return nil
     end
 
-    local cloudKeyBox = vCloud:AddTextBox({ Label = "Cloud key (empty = use saved)", FocusLostOnly = true })
+    cloudReadState()
 
-    local function oreoCurrentKey()
-        local key = cloudKeyBox.Value
-        if type(key) == "string" then
-            key = key:gsub("%s+", "")
-            if key ~= "" then return key end
-        end
-        return oreoReadKey()
+    local slotOptions = {}
+    for i = 1, 8 do slotOptions[i] = tostring(i) end
+
+    local slotDrop = vCloud:AddDropdown({
+        Label = "Cloud slot",
+        Options = slotOptions,
+        Default = cloudState.slot,
+    })
+    pcall(function() slotDrop:Set(cloudState.slot, true) end)
+
+    vCloud:AddToggle({
+        Label = "Load this slot on start",
+        Default = cloudState.auto,
+        OnChanged = function(value)
+            cloudState.auto = value == true
+            cloudState.slot = tostring(slotDrop.Value or cloudState.slot)
+            cloudSaveState()
+            oreoNotify(value and ("auto load slot " .. cloudState.slot .. " ON") or "auto load OFF")
+        end,
+    })
+
+    local function cloudSlotKey()
+        return cloudState.slots[tostring(slotDrop.Value)]
     end
 
     vCloud:AddButton({
-        Label = "Save my settings to cloud",
+        Label = "Save to this slot",
         OnClick = function()
             if persistence == nil then oreoNotify("config system unavailable") return end
             local exported = persistence:ExportToJson()
@@ -18113,60 +18135,76 @@ local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
             if res and type(res.Body) == "string" then
                 key = res.Body:match('"key"%s*:%s*"([^"]+)"')
             end
-            if key then
-                oreoWriteKey(key)
-                pcall(function() cloudKeyBox:Set(key) end)
-                oreoNotify("saved to cloud: " .. OREO_CLOUD_BASE .. key)
-            else
+            if not key then
                 oreoNotify("save failed: " .. tostring(res and res.StatusCode or "no request() in this executor"))
+                return
             end
+            local slot = tostring(slotDrop.Value)
+            cloudState.slots[slot] = key
+            cloudState.slot = slot
+            cloudSaveState()
+            oreoNotify("saved to slot " .. slot .. " (" .. key .. ")")
         end,
     })
 
     vCloud:AddButton({
-        Label = "Load my settings from cloud",
+        Label = "Load this slot now",
         Confirm = true,
         OnClick = function()
             if persistence == nil then oreoNotify("config system unavailable") return end
-            local key = oreoCurrentKey()
-            if key == nil then oreoNotify("no cloud key yet") return end
+            local key = cloudSlotKey()
+            if key == nil then oreoNotify("slot " .. tostring(slotDrop.Value) .. " is empty") return end
             local ok, body = pcall(function() return game:HttpGet(OREO_CLOUD_BASE .. key) end)
             if not ok or type(body) ~= "string" or #body < 10 or body:sub(1, 5) == "<!DOC" then
-                oreoNotify("download failed: " .. tostring(key))
+                oreoNotify("download failed for slot " .. tostring(slotDrop.Value))
                 return
             end
             local loaded = persistence:LoadFromJson(body)
             if loaded and loaded.Ok == false then
                 oreoNotify("import failed: " .. tostring(loaded.Error and loaded.Error.Detail))
             else
-                oreoNotify("loaded settings from cloud")
+                oreoNotify("loaded slot " .. tostring(slotDrop.Value))
             end
         end,
     })
 
     vCloud:AddButton({
-        Label = "Copy cloud key",
+        Label = "Clear this slot",
+        Confirm = true,
         OnClick = function()
-            local key = oreoCurrentKey()
-            if key then
-                pcall(function() setclipboard(key) end)
-                oreoNotify("key copied: " .. key)
-            else
-                oreoNotify("no cloud key yet")
-            end
+            local slot = tostring(slotDrop.Value)
+            cloudState.slots[slot] = nil
+            cloudSaveState()
+            oreoNotify("slot " .. slot .. " cleared")
         end,
     })
 
-    -- 启动自动拉取（有本地 key 才拉，失败静默）
+    vCloud:AddButton({
+        Label = "Export slot keys",
+        OnClick = function()
+            local parts = {}
+            for i = 1, 8 do
+                local k = cloudState.slots[tostring(i)]
+                if k then parts[#parts + 1] = i .. ":" .. k end
+            end
+            local text = table.concat(parts, ",")
+            if text == "" then oreoNotify("no slots saved yet") return end
+            pcall(function() setclipboard(text) end)
+            oreoNotify("keys copied (for another device)")
+        end,
+    })
+
+    -- 启动自动加载（开了开关才拉）
     task.spawn(function()
         task.wait(8)
-        local key = oreoReadKey()
-        if key == nil or persistence == nil then return end
+        if not cloudState.auto or persistence == nil then return end
+        local key = cloudState.slots[tostring(cloudState.slot)]
+        if key == nil then return end
         local ok, body = pcall(function() return game:HttpGet(OREO_CLOUD_BASE .. key) end)
         if ok and type(body) == "string" and #body > 10 then
             local loaded = persistence:LoadFromJson(body)
             if loaded and loaded.Ok ~= false then
-                oreoNotify("auto-loaded settings from cloud")
+                oreoNotify("auto loaded slot " .. cloudState.slot)
             end
         end
     end)
