@@ -18049,26 +18049,27 @@ local v120 = arg3:AddSection({ Title = "Whole-Menu Profiles", Side = v86[42] })
 local v121 = arg3:AddSection({ Title = "Transfer", Side = "right" })
 local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
 
-    --== OREO Cloud：把自己的整套参数存到云端（jsonblob，免注册），换设备也能拉回来 ==
+    --== OREO Cloud：整套参数存到云端（pastes.dev，免注册），换设备也能拉回来 ==
     local vCloud = arg3:AddSection({ Title = "Cloud (OREO)", Side = "right" })
     local OREO_CLOUD_FILE = "kiciarebuild/oreo_cloud.txt"
+    local OREO_CLOUD_BASE = "https://api.pastes.dev/"
 
     local function oreoNotify(text)
         pcall(function() v116.get():Notify({ { Text = text } }) end)
         print("[OREO Cloud] " .. tostring(text))
     end
 
-    local function oreoReadId()
-        local ok, id = pcall(function() return readfile(OREO_CLOUD_FILE) end)
-        if ok and type(id) == "string" then
-            id = id:gsub("%s+", "")
-            if id ~= "" then return id end
+    local function oreoReadKey()
+        local ok, key = pcall(function() return readfile(OREO_CLOUD_FILE) end)
+        if ok and type(key) == "string" then
+            key = key:gsub("%s+", "")
+            if key ~= "" then return key end
         end
         return nil
     end
 
-    local function oreoWriteId(id)
-        pcall(function() writefile(OREO_CLOUD_FILE, id) end)
+    local function oreoWriteKey(key)
+        pcall(function() writefile(OREO_CLOUD_FILE, key) end)
     end
 
     local function oreoHttp(opts)
@@ -18082,65 +18083,42 @@ local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
         return nil
     end
 
-    local function oreoGetIdFromResponse(res)
-        if type(res) ~= "table" then return nil end
-        local h = res.Headers or res.headers
-        if type(h) == "table" then
-            local loc = h.Location or h.location
-            if type(loc) == "string" then
-                local id = loc:match("([%w%-_]+)/?$")
-                if id then return id end
-            end
-        end
-        if type(res.Body) == "string" then
-            local id = res.Body:match("jsonBlob/([%w%-_]+)")
-            if id then return id end
-        end
-        return nil
-    end
+    local cloudKeyBox = vCloud:AddTextBox({ Label = "Cloud key (empty = use saved)", FocusLostOnly = true })
 
-    local cloudBox = vCloud:AddTextBox({ Label = "Cloud ID (leave empty = new)", FocusLostOnly = true })
+    local function oreoCurrentKey()
+        local key = cloudKeyBox.Value
+        if type(key) == "string" then
+            key = key:gsub("%s+", "")
+            if key ~= "" then return key end
+        end
+        return oreoReadKey()
+    end
 
     vCloud:AddButton({
         Label = "Save my settings to cloud",
         OnClick = function()
-            if persistence == nil then oreoNotify("配置系统不可用") return end
+            if persistence == nil then oreoNotify("config system unavailable") return end
             local exported = persistence:ExportToJson()
             if not exported.Ok then
-                oreoNotify("导出失败：" .. tostring(exported.Error and exported.Error.Detail))
-                return
-            end
-            local body = exported.Value
-            local id = cloudBox.Value
-            if type(id) ~= "string" or id == "" then id = oreoReadId() end
-            if id ~= nil then
-                local res = oreoHttp({
-                    Url = "https://jsonblob.com/api/jsonBlob/" .. tostring(id),
-                    Method = "PUT",
-                    Body = body,
-                    Headers = { ["Content-Type"] = "application/json" },
-                })
-                if res and (res.StatusCode == 200 or res.StatusCode == 204 or res.StatusCode == 201) then
-                    oreoWriteId(tostring(id))
-                    oreoNotify("已更新云端参数（ID " .. tostring(id) .. "）")
-                else
-                    oreoNotify("上传失败：" .. tostring(res and res.StatusCode or "请求不可用"))
-                end
+                oreoNotify("export failed: " .. tostring(exported.Error and exported.Error.Detail))
                 return
             end
             local res = oreoHttp({
-                Url = "https://jsonblob.com/api/jsonBlob",
+                Url = "https://api.pastes.dev/post",
                 Method = "POST",
-                Body = body,
-                Headers = { ["Content-Type"] = "application/json" },
+                Body = exported.Value,
+                Headers = { ["Content-Type"] = "text/plain" },
             })
-            local newId = oreoGetIdFromResponse(res)
-            if newId then
-                oreoWriteId(newId)
-                pcall(function() cloudBox:Set(newId) end)
-                oreoNotify("已保存到云端，ID " .. newId)
+            local key
+            if res and type(res.Body) == "string" then
+                key = res.Body:match('"key"%s*:%s*"([^"]+)"')
+            end
+            if key then
+                oreoWriteKey(key)
+                pcall(function() cloudKeyBox:Set(key) end)
+                oreoNotify("saved to cloud: " .. OREO_CLOUD_BASE .. key)
             else
-                oreoNotify("创建失败：" .. tostring(res and res.StatusCode or "请求不可用"))
+                oreoNotify("save failed: " .. tostring(res and res.StatusCode or "no request() in this executor"))
             end
         end,
     })
@@ -18149,63 +18127,46 @@ local v122 = arg3:AddSection({ Title = "Automation", Side = "right" })
         Label = "Load my settings from cloud",
         Confirm = true,
         OnClick = function()
-            if persistence == nil then oreoNotify("配置系统不可用") return end
-            local id = cloudBox.Value
-            if type(id) ~= "string" or id == "" then id = oreoReadId() end
-            if id == nil then oreoNotify("还没有 Cloud ID") return end
-            local body
-            local res = oreoHttp({
-                Url = "https://jsonblob.com/api/jsonBlob/" .. tostring(id),
-                Method = "GET",
-            })
-            if res and type(res.Body) == "string" then body = res.Body end
-            if body == nil then
-                local ok, got = pcall(function()
-                    return game:HttpGet("https://jsonblob.com/api/jsonBlob/" .. tostring(id))
-                end)
-                if ok then body = got end
-            end
-            if type(body) ~= "string" or #body < 10 then
-                oreoNotify("拉取失败：检查 Cloud ID 或网络")
+            if persistence == nil then oreoNotify("config system unavailable") return end
+            local key = oreoCurrentKey()
+            if key == nil then oreoNotify("no cloud key yet") return end
+            local ok, body = pcall(function() return game:HttpGet(OREO_CLOUD_BASE .. key) end)
+            if not ok or type(body) ~= "string" or #body < 10 or body:sub(1, 5) == "<!DOC" then
+                oreoNotify("download failed: " .. tostring(key))
                 return
             end
             local loaded = persistence:LoadFromJson(body)
             if loaded and loaded.Ok == false then
-                oreoNotify("导入失败：" .. tostring(loaded.Error and loaded.Error.Detail))
+                oreoNotify("import failed: " .. tostring(loaded.Error and loaded.Error.Detail))
             else
-                oreoNotify("已从云端加载参数")
+                oreoNotify("loaded settings from cloud")
             end
         end,
     })
 
     vCloud:AddButton({
-        Label = "Copy Cloud ID",
+        Label = "Copy cloud key",
         OnClick = function()
-            local id = oreoReadId() or cloudBox.Value
-            if type(id) == "string" and id ~= "" then
-                pcall(function() setclipboard(id) end)
-                oreoNotify("Cloud ID 已复制：" .. id)
+            local key = oreoCurrentKey()
+            if key then
+                pcall(function() setclipboard(key) end)
+                oreoNotify("key copied: " .. key)
             else
-                oreoNotify("还没有 Cloud ID")
+                oreoNotify("no cloud key yet")
             end
         end,
     })
 
-    -- 启动自动拉（有缓存 ID 才拉，失败静默）
+    -- 启动自动拉取（有本地 key 才拉，失败静默）
     task.spawn(function()
         task.wait(8)
-        local id = oreoReadId()
-        if id == nil or persistence == nil then return end
-        local body
-        local res = oreoHttp({
-            Url = "https://jsonblob.com/api/jsonBlob/" .. tostring(id),
-            Method = "GET",
-        })
-        if res and type(res.Body) == "string" then body = res.Body end
-        if type(body) == "string" and #body > 10 then
+        local key = oreoReadKey()
+        if key == nil or persistence == nil then return end
+        local ok, body = pcall(function() return game:HttpGet(OREO_CLOUD_BASE .. key) end)
+        if ok and type(body) == "string" and #body > 10 then
             local loaded = persistence:LoadFromJson(body)
             if loaded and loaded.Ok ~= false then
-                oreoNotify("已自动从云端加载参数")
+                oreoNotify("auto-loaded settings from cloud")
             end
         end
     end)
