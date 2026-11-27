@@ -16,8 +16,8 @@
 
 local BASE = "https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/"
 local MIRRORS = {
-    BASE .. "oreo-kicia-v4.lua",
     "https://cdn.jsdelivr.net/gh/robert80322-sys/rivals-hub@main/oreo-kicia-v4.lua",
+    BASE .. "oreo-kicia-v4.lua",
     "https://raw.gitmirror.com/robert80322-sys/rivals-hub/main/oreo-kicia-v4.lua",
 }
 
