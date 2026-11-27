@@ -16,9 +16,9 @@
 
 local BASE = "https://raw.githubusercontent.com/robert80322-sys/rivals-hub/main/"
 local MIRRORS = {
-    BASE .. "oreo-kicia-v2.lua",
-    "https://cdn.jsdelivr.net/gh/robert80322-sys/rivals-hub@main/oreo-kicia-v2.lua",
-    "https://raw.gitmirror.com/robert80322-sys/rivals-hub/main/oreo-kicia-v2.lua",
+    BASE .. "oreo-kicia-v3.lua",
+    "https://cdn.jsdelivr.net/gh/robert80322-sys/rivals-hub@main/oreo-kicia-v3.lua",
+    "https://raw.gitmirror.com/robert80322-sys/rivals-hub/main/oreo-kicia-v3.lua",
 }
 
 print("[OREO] 开始加载（2.1 MB，第一次要十几秒）")
