@@ -112,3 +112,24 @@ A.cfg.maxDist = 120
 
 注意 `desyncMaxDist`（默认 60）不是锁人范围，是「身体能挪多远还算数」的服务端界限，
 调大只会让远距离那几发也被挪身体，不会扩大锁人范围。
+
+## 九、v4：不瞬移的「贴身」
+
+上一版是把 `HumanoidRootPart` 真的挪到目标旁边，别人看得到瞬移。v4 换成 `rage.lua` 里的
+**物理复制根**：只把 `PhysicsRepRootRef` 指到目标命中盒上，服务端算射线/距离时用这个根，
+你自己的角色模型、相机、动作全都不动 —— 外面看不到任何位移。
+
+| `positionSpoof` | 行为 | 可见性 |
+|---|---|---|
+| `reproot`（默认） | 只写 `PhysicsRepRootRef`，`repRootHold` 后摘掉 | 看不见 |
+| `body` | 真的挪 `HumanoidRootPart`（旧版） | 会瞬移 |
+| `none` | 只在包里写起点（v2） | 看不见，但命中率低 |
+
+状态条 `rp` = 复制根写成功的次数。`rp` 一直是 0 说明执行器没有
+`sethiddenproperty` 也没有 `setthreadidentity`，那会自动退回 `none` 行为（不会瞬移，但也不再贴身）。
+
+```lua
+local A = getgenv().OreoSilentHead
+A.cfg.positionSpoof = "reproot"  -- 默认
+A.cfg.repRootHold = 0.08         -- 复制根挂多久（秒）
+```

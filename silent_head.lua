@@ -52,7 +52,9 @@ local CFG = {
     lead = 0.06,           -- 提前量系数（×目标速度），0 = 不预判
     originJitter = 2,      -- 起点在目标头周围随机偏移（格），0 = 正好在头上
     hitJitter = 0.1,       -- 命中点的抖动（格），照开源实现
-    desync = true,         -- 开火时把身体挪到目标旁边一瞬（rage.lua 那套），服务端就认起点
+    positionSpoof = "reproot", -- 位置伪造方式：reproot=只改复制根（看不见）/ body=真挪身体（会瞬移）/ none=只改包
+    repRootHold = 0.08,    -- 复制根挂多久再摘（秒）
+    desync = true,         -- 兼容旧配置：false = 等价于 positionSpoof="none"
     desyncRadius = 5,      -- 挪过去的半径（格）
     desyncHold = 0.05,     -- 挪过去停多久再还原（秒）
     desyncMaxDist = 60,    -- 超过这个距离不挪（rage.lua 实测 60 内才有效）
@@ -63,7 +65,7 @@ local CFG = {
     debug = false,
 }
 
-local STATS = { shots = 0, rewrites = 0, noTarget = 0, desyncs = 0, selfFired = 0, hook = "none" }
+local STATS = { shots = 0, rewrites = 0, noTarget = 0, desyncs = 0, spoofs = 0, selfFired = 0, hook = "none" }
 
 local unpackFn = table.unpack or unpack
 
@@ -108,6 +110,52 @@ print(string.format("[OREO-SA] 接口: UseItem=%s util=%s enums=%s",
 if useItem == nil then
     warn("[OREO-SA] 找不到 ReplicatedStorage.Remotes.Replication.Fighter.UseItem，停")
     return
+end
+
+--[[
+  物理复制根（照 rage.lua 的 setRepRoot）
+  把角色的「物理复制根」指向目标命中盒：服务端算射线/距离时用这个根，
+  而你自己的角色模型一步不动 —— 这就是「不瞬移也能贴身」的静默做法。
+  新客户端属性名 PhysicsRepRootRef，老的是 PhysicsRepRootPart，两个都试。
+]]
+local function setRepRoot(root, part)
+    if root == nil then
+        return false
+    end
+    local hide = sethiddenproperty or set_hidden_property or set_hidden_prop
+    local target = part or root
+    local value = target
+    local handle = getgenv and getgenv().InstanceHandle
+    if type(handle) == "table" and type(handle.new) == "function" then
+        local okH, made = pcall(handle.new, target)
+        if okH and made ~= nil then
+            value = made
+        end
+    end
+    local id
+    if getthreadidentity and setthreadidentity then
+        pcall(function() id = getthreadidentity() end)
+        pcall(setthreadidentity, 8)
+    end
+    local ok = false
+    if type(hide) == "function" then
+        ok = pcall(hide, root, "PhysicsRepRootRef", value)
+        if not ok then
+            ok = pcall(hide, root, "PhysicsRepRootPart", part)
+        end
+    end
+    if not ok and setthreadidentity then
+        local prev
+        pcall(function() prev = getthreadidentity and getthreadidentity() end)
+        pcall(setthreadidentity, 8)
+        ok = pcall(function() root.PhysicsRepRootRef = value end)
+        if not ok then
+            ok = pcall(function() root.PhysicsRepRootPart = part end)
+        end
+        if prev then pcall(setthreadidentity, prev) end
+    end
+    if id and setthreadidentity then pcall(setthreadidentity, id) end
+    return ok
 end
 
 -- CFrame 编解码：优先游戏自己的 Utility
@@ -367,65 +415,83 @@ local function jitter(range)
 end
 
 --[[
-  开火前把身体挪到目标旁边（rage.lua 的 desync）
-  服务端是按你"复制过去的身体位置"算射线的：身体贴着目标，起点就合法，
-  距离/墙挡校验都能过。发完 50ms 还原，客户端视角不动。
+  位置伪造（三种）：
+    reproot —— 只把物理复制根指到目标（默认，角色不动，别人看不见）
+    body    —— 真的把 HumanoidRootPart 挪过去（rage.lua 的 desync，会瞬移，已经不建议）
+    none    —— 什么都不做，只在包里写起点（v2 行为）
 ]]
-local desyncSaved = nil
-local desyncToken = 0
+local spoofSaved = nil
+local spoofToken = 0
 
-local function desyncTo(part, holdSeconds)
-    if not CFG.desync then
+local function spoofPosition(part, holdSeconds)
+    local mode = CFG.positionSpoof
+    if CFG.desync == false then
+        mode = "none"
+    end
+    if mode == "none" then
         return nil
     end
+
     local char = LP.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if root == nil then
         return nil
     end
-    local standPos
-    local ok, err = pcall(function()
-        if desyncSaved == nil then
-            desyncSaved = {
-                root = root,
-                cf = root.CFrame,
-                vel = root.Velocity,
-                rot = root.RotVelocity,
-            }
+    local hold = holdSeconds or CFG.repRootHold
+
+    if mode == "body" then
+        -- 旧方案：角色真的挪过去，别人能看到瞬移
+        local standPos
+        local ok, err = pcall(function()
+            if spoofSaved == nil then
+                spoofSaved = { root = root, cf = root.CFrame, vel = root.Velocity, rot = root.RotVelocity }
+            end
+            local angle = math.random() * math.pi * 2
+            local radius = math.random(30, math.max(31, CFG.desyncRadius * 10)) / 10
+            standPos = part.Position + Vector3.new(math.cos(angle) * radius, math.random(0, 20) / 10, math.sin(angle) * radius)
+            root.CFrame = CFrame.lookAt(standPos, part.Position)
+        end)
+        if not ok then
+            log("body desync 失败: %s", tostring(err))
+            return nil
         end
-        local angle = math.random() * math.pi * 2
-        local radius = math.random(30, math.max(31, CFG.desyncRadius * 10)) / 10
-        standPos = part.Position + Vector3.new(math.cos(angle) * radius, math.random(0, 20) / 10, math.sin(angle) * radius)
-        root.CFrame = CFrame.lookAt(standPos, part.Position)
-    end)
-    if not ok then
-        log("desync 失败: %s", tostring(err))
-        return nil
+        STATS.desyncs = STATS.desyncs + 1
+        spoofToken = spoofToken + 1
+        local mine = spoofToken
+        task.delay(hold, function()
+            if mine ~= spoofToken then return end
+            local saved = spoofSaved
+            spoofSaved = nil
+            if saved == nil then return end
+            pcall(function()
+                if saved.root.Parent == nil then return end
+                saved.root.CFrame = saved.cf
+                saved.root.Velocity = saved.vel
+                saved.root.RotVelocity = saved.rot
+            end)
+        end)
+        return standPos
     end
 
-    STATS.desyncs = STATS.desyncs + 1
-    desyncToken = desyncToken + 1
-    local mine = desyncToken
-    task.delay(holdSeconds or CFG.desyncHold, function()
-        if mine ~= desyncToken then
-            return
-        end
-        local saved = desyncSaved
-        desyncSaved = nil
-        if saved == nil then
-            return
-        end
+    -- 默认：reproot，角色不动
+    if not setRepRoot(root, part) then
+        log("reproot 写入失败（执行器没有 sethiddenproperty / setthreadidentity）")
+        return nil
+    end
+    STATS.spoofs = STATS.spoofs + 1
+    spoofToken = spoofToken + 1
+    local mine = spoofToken
+    task.delay(hold, function()
+        if mine ~= spoofToken then return end
         pcall(function()
-            if saved.root.Parent == nil then
-                return
+            if root.Parent ~= nil then
+                setRepRoot(root, nil)
             end
-            saved.root.CFrame = saved.cf
-            saved.root.Velocity = saved.vel
-            saved.root.RotVelocity = saved.rot
         end)
     end)
-
-    return standPos
+    -- 服务端认为我们在目标身上，包里起点就写目标附近
+    local j = CFG.originJitter
+    return part.Position + Vector3.new(jitter(j), math.random() * j, jitter(j))
 end
 
 local function aimPartOf(target)
@@ -462,7 +528,7 @@ local function rewriteShot(args, target, holdSeconds)
     -- 60 格内先 desync（把身体挪过去，服务端才认这个起点），再退化成"包里写目标旁边"
     local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     if myRoot ~= nil and (myRoot.Position - pos).Magnitude <= CFG.desyncMaxDist then
-        origin = desyncTo(head, holdSeconds)
+        origin = spoofPosition(head, holdSeconds)
     end
     if origin == nil then
         local j = CFG.originJitter
@@ -820,9 +886,9 @@ local function hudTick()
         end
         who = nm .. " " .. head.Name
     end
-    HUD.Text = string.format("SA %s | %s | shots %d | rew %d | ds %d | sf %d | %s",
+    HUD.Text = string.format("SA %s | %s | shots %d | rew %d | rp %d | sf %d | %s",
         CFG.enabled and "ON" or "OFF", tostring(installedBy), STATS.shots, STATS.rewrites,
-        STATS.desyncs, STATS.selfFired, who)
+        STATS.spoofs, STATS.selfFired, who)
 end
 
 if CFG.hud then
@@ -847,7 +913,7 @@ end
 function API.status()
     return string.format("[OREO-SA] %s | %s | shots=%d rew=%d noTarget=%d desync=%d selfFire=%d | %s",
         tostring(installedBy), CFG.enabled and "ON" or "OFF",
-        STATS.shots, STATS.rewrites, STATS.noTarget, STATS.desyncs, STATS.selfFired,
+        STATS.shots, STATS.rewrites, STATS.noTarget, STATS.desyncs + STATS.spoofs, STATS.selfFired,
         currentTarget and currentTarget.head and currentTarget.head.Name or "no target")
 end
 
@@ -872,9 +938,13 @@ function API.unload()
         end)
         namecallHook = nil
     end
-    if desyncSaved ~= nil then
-        local saved = desyncSaved
-        desyncSaved = nil
+    pcall(function()
+        local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if r ~= nil then setRepRoot(r, nil) end
+    end)
+    if spoofSaved ~= nil then
+        local saved = spoofSaved
+        spoofSaved = nil
         pcall(function()
             saved.root.CFrame = saved.cf
             saved.root.Velocity = saved.vel
