@@ -45,8 +45,8 @@ local CFG = {
     chance = 100,          -- 100 = 每一发都改
     part = "Head",         -- 开源实现打的是 Head；缺了才退 HitboxHead / HitboxHeadSmall
     fovEnabled = true,
-    fovRadius = 420,       -- 屏幕像素半径（准心为中心）
-    maxDist = 600,         -- 和目标的最大距离（格）
+    fovRadius = 220,       -- 屏幕像素半径（准心为中心），越大锁得越宽
+    maxDist = 180,         -- 和目标的最大距离（格），超过就不锁
     visibleOnly = false,   -- 起点就在目标旁边，隔墙也能过；想只打看得见的就改 true
     teamCheck = true,
     lead = 0.06,           -- 提前量系数（×目标速度），0 = 不预判
@@ -335,7 +335,7 @@ local function pickTarget()
                 local sp, onScreen = cam:WorldToViewportPoint(head.Position)
                 if onScreen and sp.Z > 0 then
                     local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if d <= CFG.fovRadius and d < bestScore then
+                    if (not CFG.fovEnabled or d <= CFG.fovRadius) and d < bestScore then
                         if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
                             best, bestScore = c, d
                         end

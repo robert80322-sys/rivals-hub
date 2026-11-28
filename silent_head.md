@@ -41,8 +41,8 @@ data["\1"] = {
 |---|---|---|
 | `enabled` | true | 常开；`.setEnabled(false)` 临时关 |
 | `chance` | 100 | 每一发都改 |
-| `fovRadius` | 420 | 屏幕像素半径（准心为中心） |
-| `maxDist` | 600 | 和目标的最大距离 |
+| `fovRadius` | 220 | 屏幕像素半径（准心为中心），越大锁得越宽 |
+| `maxDist` | 180 | 和目标的最大距离（格），超过不锁 |
 | `visibleOnly` | false | 起点在目标旁边，隔墙也能过；想只打看得见的改 true |
 | `teamCheck` | true | 队友过滤 |
 | `lead` | 0.06 | 提前量系数（× 目标速度），0 = 不预判 |
@@ -92,3 +92,23 @@ v3 照 `rage.lua` 的做法补两步：
 状态条：`shots / rew / ds / sf` 四个计数 —— `ds` 是挪了几次身体，`sf` 是自己发了几发。
 若出现「一发都不中」：先 `cfg.desync=false; cfg.selfFire=false` 退回 v2 行为，
 把状态条和 Console 发我；`desyncMaxDist`（默认 60）之外不会挪身体，属于预期。
+
+## 八、范围怎么调
+
+| 想要的感觉 | `fovRadius`（像素） | `maxDist`（格） |
+|---|---|---|
+| 贴脸才锁 | 120 | 80 |
+| 默认（准心周围一小圈） | 220 | 180 |
+| 全屏乱锁 | 420 | 600 |
+| 不限角度（只看距离） | `fovEnabled = false` | 自己定 |
+
+改完立刻生效，不用重载：
+
+```lua
+local A = getgenv().OreoSilentHead
+A.cfg.fovRadius = 140
+A.cfg.maxDist = 120
+```
+
+注意 `desyncMaxDist`（默认 60）不是锁人范围，是「身体能挪多远还算数」的服务端界限，
+调大只会让远距离那几发也被挪身体，不会扩大锁人范围。
