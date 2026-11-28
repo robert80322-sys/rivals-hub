@@ -173,6 +173,33 @@ local function encodeCFrame(cf)
     }
 end
 
+-- 动作白名单：只处理「开枪 / 挥刀」，投掷物、换弹、装备一律原样放行。
+-- 之前没判断动作，扔雷也会走一遍 → 身体被挪到目标那边，看着像瞬移。
+local enumFrom = nil
+pcall(function()
+    local lib = RIVALS.enums
+    if type(lib) == "table" and type(rawget(lib, "_from_enum")) == "table" then
+        enumFrom = rawget(lib, "_from_enum")
+    end
+end)
+
+local SHOOT_ACTIONS = { StartShooting = true, StartAiming = true }
+
+local function isShootAction(action)
+    if enumFrom == nil then
+        -- 整个枚举表都拿不到：退回按包结构判断，总比整局不改强
+        return true
+    end
+    local ok, name = pcall(function()
+        return enumFrom[action]
+    end)
+    if not ok or type(name) ~= "string" then
+        -- 枚举在、但这个名字不认识（投掷/换弹/新动作）：一律放行，别乱改
+        return false
+    end
+    return SHOOT_ACTIONS[name] == true
+end
+
 local function toEnum(name)
     local v
     if RIVALS.enums then
@@ -606,6 +633,9 @@ end
   （rage.lua 里也是自己 FireServer，只是因为不能中途等，所以它带 race；这里等一帧就没 race 了）
 ]]
 local function dispatch(objectId, action, data, deliver)
+    if not isShootAction(action) then
+        return deliver()
+    end
     if CFG.enabled and type(data) == "table" and currentTarget ~= nil then
         STATS.shots = STATS.shots + 1
         local hold = CFG.selfFire and (CFG.selfFireDelay + 0.06) or 0.05
