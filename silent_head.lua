@@ -58,6 +58,7 @@ local CFG = {
     desyncRadius = 5,      -- 挪过去的半径（格）
     desyncHold = 0.05,     -- 挪过去停多久再还原（秒）
     desyncMaxDist = 300,   -- 超过这个距离不伪造位置
+    nearRange = 120,       -- 这个距离内算「近」：有近目标就只打近的，远的当备胎
     farDist = 120,         -- 超过这个距离算「远」，复制根/身体停留时间换用 farHold
     farHold = 0.14,        -- 远距离那次伪造挂多久（近解远松，服务端才有时间认）
     selfFire = false,      -- true=拦下游戏那发、等位置同步后再发（配 reproot 用）；hybrid 下保持 false
@@ -409,18 +410,32 @@ local function pickTarget()
     end
     local vp = cam.ViewportSize
     local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
-    local best, bestScore = nil, math.huge
+    local myPos = myRoot.Position
+
+    local bestNear, bestNearScore, bestNearDist = nil, math.huge, 0
+    local bestFar, bestFarScore, bestFarDist = nil, math.huge, 0
+    local bestNearPlayer, bestFarPlayer = nil, nil
 
     for p, c in pairs(cache) do
         local head, hum = c.head, c.hum
-        if head ~= nil and head.Parent ~= nil and hum ~= nil and hum.Health > 0 and not isAlly(p) then
-            if (head.Position - myRoot.Position).Magnitude <= CFG.maxDist then
+        -- 缓存可能比 Character 慢一拍：模型换了就先跳过，别打空气
+        local stale = (c.char ~= p.Character)
+        if not stale and head ~= nil and head.Parent ~= nil and hum ~= nil and hum.Health > 0
+            and not isAlly(p) then
+            local studs = (head.Position - myPos).Magnitude
+            if studs <= CFG.maxDist then
                 local sp, onScreen = cam:WorldToViewportPoint(head.Position)
                 if onScreen and sp.Z > 0 then
                     local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if (not CFG.fovEnabled or d <= CFG.fovRadius) and d < bestScore then
-                        if (not CFG.visibleOnly) or canSee(head, c.char, cam) then
-                            best, bestScore = c, d
+                    if not CFG.fovEnabled or d <= CFG.fovRadius then
+                        if not CFG.visibleOnly or canSee(head, c.char, cam) then
+                            if studs <= CFG.nearRange then
+                                if d < bestNearScore then
+                                    bestNear, bestNearScore, bestNearDist, bestNearPlayer = c, d, studs, p
+                                end
+                            elseif d < bestFarScore then
+                                bestFar, bestFarScore, bestFarDist, bestFarPlayer = c, d, studs, p
+                            end
                         end
                     end
                 end
@@ -428,10 +443,23 @@ local function pickTarget()
         end
     end
 
+    -- 近的优先；一个近的都没有才用远的
+    local best, dist, who = bestNear, bestNearDist, bestNearPlayer
+    if best == nil then
+        best, dist, who = bestFar, bestFarDist, bestFarPlayer
+    end
     if best == nil then
         return nil
     end
-    return { head = best.head, char = best.char, root = best.root, hum = best.hum, player = nil }
+    return {
+        head = best.head,
+        char = best.char,
+        root = best.root,
+        hum = best.hum,
+        player = who,
+        dist = dist,
+        far = best == bestFar,
+    }
 end
 
 RunService.RenderStepped:Connect(function()
@@ -960,14 +988,11 @@ local function hudTick()
         gui.Parent = parent
         HUD = label
     end
-    local head = currentTarget and currentTarget.head
+    local t = currentTarget
     local who = "no target"
-    if head ~= nil then
-        local nm = "?"
-        for p, c in pairs(cache) do
-            if c.head == head then nm = p.Name break end
-        end
-        who = nm .. " " .. head.Name
+    if t ~= nil and t.head ~= nil then
+        local nm = t.player and t.player.Name or "?"
+        who = string.format("%s %s %s%d", nm, t.head.Name, t.far and "远" or "近", math.floor(t.dist or 0))
     end
     HUD.Text = string.format("SA %s | %s | shots %d | rew %d | far %d | sk %d | rp %d | %s",
         CFG.enabled and "ON" or "OFF", tostring(installedBy), STATS.shots, STATS.rewrites,
@@ -1005,7 +1030,13 @@ end
 function API.pick()
     local t = pickTarget()
     if t == nil then return nil end
-    return { part = t.head.Name, position = t.head.Position }
+    return {
+        player = t.player and t.player.Name or "?",
+        part = t.head.Name,
+        dist = t.dist,
+        far = t.far,
+        position = t.head.Position,
+    }
 end
 
 function API.unload()
