@@ -57,7 +57,9 @@ local CFG = {
     desync = true,         -- 兼容旧配置：false = 等价于 positionSpoof="none"
     desyncRadius = 5,      -- 挪过去的半径（格）
     desyncHold = 0.05,     -- 挪过去停多久再还原（秒）
-    desyncMaxDist = 300,   -- 超过这个距离不伪造位置（默认覆盖大半张图）
+    desyncMaxDist = 300,   -- 超过这个距离不伪造位置
+    farDist = 120,         -- 超过这个距离算「远」，复制根/身体停留时间换用 farHold
+    farHold = 0.14,        -- 远距离那次伪造挂多久（近解远松，服务端才有时间认）
     selfFire = false,      -- true=拦下游戏那发、等位置同步后再发（配 reproot 用）；hybrid 下保持 false
     selfFireDelay = 0.05,  -- selfFire 时重发前等多久（秒）
     aimPart = "auto",      -- auto = 优先 HitboxHead，其次 Head；也可写 "Head"
@@ -65,7 +67,7 @@ local CFG = {
     debug = false,
 }
 
-local STATS = { shots = 0, rewrites = 0, noTarget = 0, desyncs = 0, spoofs = 0, selfFired = 0, hook = "none" }
+local STATS = { shots = 0, rewrites = 0, noTarget = 0, desyncs = 0, spoofs = 0, selfFired = 0, skipped = 0, far = 0, hook = "none" }
 
 local unpackFn = table.unpack or unpack
 
@@ -186,6 +188,12 @@ end)
 local SHOOT_ACTIONS = { StartShooting = true, StartAiming = true }
 
 local function isShootAction(action)
+    if STATS ~= nil then
+        local okN, nm = pcall(function()
+            return enumFrom and enumFrom[action] or nil
+        end)
+        STATS.lastAction = (okN and type(nm) == "string") and nm or ("?" .. tostring(action))
+    end
     if enumFrom == nil then
         -- 整个枚举表都拿不到：退回按包结构判断，总比整局不改强
         return true
@@ -583,6 +591,18 @@ local function rewriteShot(args, target, holdSeconds)
     end
 
     local pos = head.Position
+    local myRootPos = nil
+    do
+        local mr = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if mr ~= nil then
+            myRootPos = mr.Position
+        end
+    end
+    local dist = myRootPos ~= nil and (myRootPos - pos).Magnitude or 0
+    if dist > CFG.farDist then
+        STATS.far = STATS.far + 1
+        holdSeconds = math.max(holdSeconds or 0, CFG.farHold)
+    end
     local origin
     -- 60 格内先 desync（把身体挪过去，服务端才认这个起点），再退化成"包里写目标旁边"
     local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -634,6 +654,7 @@ end
 ]]
 local function dispatch(objectId, action, data, deliver)
     if not isShootAction(action) then
+        STATS.skipped = STATS.skipped + 1
         return deliver()
     end
     if CFG.enabled and type(data) == "table" and currentTarget ~= nil then
@@ -948,9 +969,9 @@ local function hudTick()
         end
         who = nm .. " " .. head.Name
     end
-    HUD.Text = string.format("SA %s | %s | shots %d | rew %d | rp %d | sf %d | %s",
+    HUD.Text = string.format("SA %s | %s | shots %d | rew %d | far %d | sk %d | rp %d | %s",
         CFG.enabled and "ON" or "OFF", tostring(installedBy), STATS.shots, STATS.rewrites,
-        STATS.spoofs, STATS.selfFired, who)
+        STATS.far, STATS.skipped, STATS.spoofs, who)
 end
 
 if CFG.hud then
@@ -973,10 +994,12 @@ function API.setEnabled(v)
 end
 
 function API.status()
-    return string.format("[OREO-SA] %s | %s | shots=%d rew=%d noTarget=%d desync=%d selfFire=%d | %s",
+    return string.format("[OREO-SA] %s | %s | shots=%d rew=%d far=%d skip=%d noTarget=%d desync=%d selfFire=%d | %s",
         tostring(installedBy), CFG.enabled and "ON" or "OFF",
-        STATS.shots, STATS.rewrites, STATS.noTarget, STATS.desyncs + STATS.spoofs, STATS.selfFired,
+        STATS.shots, STATS.rewrites, STATS.far, STATS.skipped, STATS.noTarget,
+        STATS.desyncs + STATS.spoofs, STATS.selfFired,
         currentTarget and currentTarget.head and currentTarget.head.Name or "no target")
+        .. " | last=" .. tostring(STATS.lastAction)
 end
 
 function API.pick()
