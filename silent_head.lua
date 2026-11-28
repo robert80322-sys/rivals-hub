@@ -45,6 +45,7 @@ local CFG = {
     actions = {},            -- 由下面填：StartShooting / StartAiming
     hitboxPoint = "Center",  -- 原版 HitboxPoint.Type：瞄准命中盒中心 part.Position
     wallbangOrigin = false,  -- 原版 Manipulate：目标不可见时找贴身可见原点（穿薄墙）
+    hud = true,              -- 左上角一行状态：拦截方式 / 见到的包数 / 改写数 / 当前目标
     debug = false,
 }
 CFG.actions.StartShooting = true
@@ -241,6 +242,12 @@ local function isVisible(origin, part, character)
     if LocalPlayer.Character ~= nil then
         filter[#filter + 1] = LocalPlayer.Character
     end
+    -- 手模 / 第一人称视图模型一般挂在 CurrentCamera 下面，不排掉的话每条射线
+    -- 都会打在自己的枪上，visible 永远是 false，目标一个都选不出来
+    local cam = workspace.CurrentCamera
+    if cam ~= nil then
+        filter[#filter + 1] = cam
+    end
     rayParams.FilterDescendantsInstances = filter
     local hit = workspace:Raycast(origin, dir, rayParams)
     if hit == nil then
@@ -251,6 +258,16 @@ local function isVisible(origin, part, character)
     end
     if character ~= nil and character:IsAncestorOf(hit.Instance) then
         return true
+    end
+    -- 视图模型/自己身上漏出来的部件：当成没挡，继续往前看
+    if cam ~= nil and type(cam.IsAncestorOf) == "function" and cam:IsAncestorOf(hit.Instance) then
+        local delta = part.Position - hit.Position
+        if delta.Magnitude < 0.5 then
+            return true
+        end
+        local second = workspace:Raycast(hit.Position + delta.Unit * 0.25, delta, rayParams)
+        return second == nil or second.Instance == part
+            or (character ~= nil and character:IsAncestorOf(second.Instance))
     end
     return false
 end
@@ -886,6 +903,69 @@ function API.pick()
     }
 end
 
+--==========================================================================
+--  6.1 左上角状态条（排查用：一眼看出「有没有拦到包」「有没有选中人」）
+--==========================================================================
+local HUD
+local function hudTick()
+    if not CFG.hud then
+        return
+    end
+    if HUD == nil or HUD.Parent == nil then
+        local parent
+        local ok, hui = pcall(function()
+            return gethui()
+        end)
+        if ok and hui ~= nil then
+            parent = hui
+        else
+            local ok2, cg = pcall(function()
+                return game:GetService("CoreGui")
+            end)
+            parent = ok2 and cg or nil
+        end
+        if parent == nil then
+            return
+        end
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "OreoSilentHud"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = true
+        gui.DisplayOrder = 10
+        local label = Instance.new("TextLabel")
+        label.BackgroundTransparency = 0.35
+        label.BackgroundColor3 = Color3.new(0, 0, 0)
+        label.Size = UDim2.new(0, 360, 0, 18)
+        label.Position = UDim2.new(0, 8, 0, 8)
+        label.Font = Enum.Font.Code
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextColor3 = Color3.new(0.45, 1, 0.45)
+        label.Text = "OREO-SA"
+        label.Parent = gui
+        gui.Parent = parent
+        HUD = label
+    end
+
+    local target = pickTarget(workspace.CurrentCamera and workspace.CurrentCamera.CFrame.Position or Vector3.zero)
+    local who = "no target"
+    if target ~= nil then
+        who = target.player.Name .. " " .. target.part.Name .. (target.visible and " vis" or " x")
+    end
+    HUD.Text = string.format("SA %s | hook %s | shots %d | rew %d | %s",
+        CFG.enabled and "ON" or "OFF", tostring(installedBy),
+        STATS.shots, STATS.rewrites, who)
+end
+
+if CFG.hud then
+    task.spawn(function()
+        while CFG.hud do
+            pcall(hudTick)
+            task.wait(0.4)
+        end
+    end)
+end
+
 function API.unload()
     removeNamecallHook()
     -- hookfunction 还原：把原函数写回同一个 C 闭包
@@ -905,6 +985,12 @@ function API.unload()
         end
     end
     CFG.enabled = false
+    CFG.hud = false
+    if HUD ~= nil and HUD.Parent ~= nil then
+        pcall(function()
+            HUD.Parent:Destroy() -- 只删自己的 ScreenGui，绝不碰 CoreGui/gethui
+        end)
+    end
     getgenv().OreoSilentHead = nil
     print("[OREO-SA] 已卸载")
 end

@@ -78,6 +78,18 @@ API.unload()           -- 还原所有改动
 
 ## 四、自检与排错
 
+左上角有一行状态条（`CFG.hud`，默认开）：
+
+```
+SA ON | hook namecall/upvalue(n) | shots 12 | rew 9 | Enemy1 HitboxHead vis
+```
+
+- `hook NO HOOK` → 三种拦截都没装上，脚本等于没跑
+- 开枪时 `shots` 不涨 → 没拦到游戏的 UseItem 包
+- `shots` 涨、`rew` 不涨 → 拦到了但选不出目标（看后面是 `no target` 还是 `xxx x`，`x` 表示不可见）
+- 两个都涨但打不中 → 服务端不认包里弹道，需要走视角那条路
+
+
 加载成功会打印：
 
 ```
