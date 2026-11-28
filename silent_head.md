@@ -134,3 +134,24 @@ local A = getgenv().OreoSilentHead
 A.cfg.positionSpoof = "reproot"  -- 默认
 A.cfg.repRootHold = 0.08         -- 复制根挂多久（秒）
 ```
+
+## 十、v5：hybrid（一帧挪身体，自己看不见）
+
+v4 只挂复制根，实测「经常打不中」——复制根要么没被服务端采用，要么比包晚到。
+v5 回到 kicia ragebot 的做法，但把可见位移压到**一帧**：
+
+1. 开火那一帧：`HumanoidRootPart` 挪到目标旁边（4~7 格），同时挂 `PhysicsRepRootRef`
+2. **下一帧 RenderStepped（渲染之前）立刻还原** —— 你自己画面里看不到位移，服务端那一帧收到的位置是贴着目标的
+3. 包立即发（`selfFire=false`），复制根 `repRootHold` 后摘掉
+
+| `positionSpoof` | 行为 |
+|---|---|
+| `hybrid`（默认） | 复制根 + 一帧身体，自己看不见 |
+| `reproot` | 只挂复制根（v4，命中率偏低） |
+| `body` | 挪 50ms（会看到瞬移，v3） |
+| `none` | 只改包（v2） |
+
+`selfFire` 默认改成 `false`：hybrid 靠「身体那一帧」让服务端认位置，包必须立刻发出去；
+想用 `reproot` 时可以把它设回 `true`（等 `selfFireDelay` 再发）。
+
+其它默认：`desyncMaxDist=300`、`repRootHold=0.12`、`hitJitter=0.05`、`lead=0.04`。

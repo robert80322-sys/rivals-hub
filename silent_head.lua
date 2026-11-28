@@ -49,17 +49,17 @@ local CFG = {
     maxDist = math.huge,   -- 和目标的最大距离（格）：无限 = 地图另一头也锁
     visibleOnly = false,   -- 起点就在目标旁边，隔墙也能过；想只打看得见的就改 true
     teamCheck = true,
-    lead = 0.06,           -- 提前量系数（×目标速度），0 = 不预判
+    lead = 0.04,           -- 提前量系数（×目标速度），0 = 不预判
     originJitter = 2,      -- 起点在目标头周围随机偏移（格），0 = 正好在头上
-    hitJitter = 0.1,       -- 命中点的抖动（格），照开源实现
-    positionSpoof = "reproot", -- 位置伪造方式：reproot=只改复制根（看不见）/ body=真挪身体（会瞬移）/ none=只改包
-    repRootHold = 0.08,    -- 复制根挂多久再摘（秒）
+    hitJitter = 0.05,      -- 命中点的抖动（格），越小越准
+    positionSpoof = "hybrid", -- hybrid=复制根+挪身体一帧（自己看不见，服务端认）/ reproot=只改复制根 / body=旧版 / none=只改包
+    repRootHold = 0.12,    -- 复制根挂多久再摘（秒）
     desync = true,         -- 兼容旧配置：false = 等价于 positionSpoof="none"
     desyncRadius = 5,      -- 挪过去的半径（格）
     desyncHold = 0.05,     -- 挪过去停多久再还原（秒）
-    desyncMaxDist = 60,    -- 超过这个距离不挪（rage.lua 实测 60 内才有效）
-    selfFire = true,       -- 拦下游戏那发，等位置同步后由我们重发（消掉 race，命中率高很多）
-    selfFireDelay = 0.04,  -- 重发前等多久（秒）
+    desyncMaxDist = 300,   -- 超过这个距离不伪造位置（默认覆盖大半张图）
+    selfFire = false,      -- true=拦下游戏那发、等位置同步后再发（配 reproot 用）；hybrid 下保持 false
+    selfFireDelay = 0.05,  -- selfFire 时重发前等多久（秒）
     aimPart = "auto",      -- auto = 优先 HitboxHead，其次 Head；也可写 "Head"
     hud = true,
     debug = false,
@@ -420,8 +420,27 @@ end
     body    —— 真的把 HumanoidRootPart 挪过去（rage.lua 的 desync，会瞬移，已经不建议）
     none    —— 什么都不做，只在包里写起点（v2 行为）
 ]]
-local spoofSaved = nil
-local spoofToken = 0
+local bodySaved = nil
+local bodyToken = 0
+
+local function restoreBody(token)
+    if bodySaved == nil then
+        return
+    end
+    if token ~= nil and token ~= bodyToken then
+        return
+    end
+    local saved = bodySaved
+    bodySaved = nil
+    pcall(function()
+        if saved.root.Parent == nil then
+            return
+        end
+        saved.root.CFrame = saved.cf
+        saved.root.Velocity = saved.vel
+        saved.root.RotVelocity = saved.rot
+    end)
+end
 
 local function spoofPosition(part, holdSeconds)
     local mode = CFG.positionSpoof
@@ -439,12 +458,13 @@ local function spoofPosition(part, holdSeconds)
     end
     local hold = holdSeconds or CFG.repRootHold
 
-    if mode == "body" then
-        -- 旧方案：角色真的挪过去，别人能看到瞬移
+    if mode == "body" or mode == "hybrid" then
+        -- 挪过去一帧：等下一帧 RenderStepped（渲染之前）立刻还原，
+        -- 自己画面里看不到位移，服务端那一帧收到的位置却是贴着目标的
         local standPos
         local ok, err = pcall(function()
-            if spoofSaved == nil then
-                spoofSaved = { root = root, cf = root.CFrame, vel = root.Velocity, rot = root.RotVelocity }
+            if bodySaved == nil then
+                bodySaved = { root = root, cf = root.CFrame, vel = root.Velocity, rot = root.RotVelocity }
             end
             local angle = math.random() * math.pi * 2
             local radius = math.random(30, math.max(31, CFG.desyncRadius * 10)) / 10
@@ -452,24 +472,36 @@ local function spoofPosition(part, holdSeconds)
             root.CFrame = CFrame.lookAt(standPos, part.Position)
         end)
         if not ok then
-            log("body desync 失败: %s", tostring(err))
+            log("body spoof 失败: %s", tostring(err))
             return nil
         end
+
         STATS.desyncs = STATS.desyncs + 1
-        spoofToken = spoofToken + 1
-        local mine = spoofToken
-        task.delay(hold, function()
-            if mine ~= spoofToken then return end
-            local saved = spoofSaved
-            spoofSaved = nil
-            if saved == nil then return end
-            pcall(function()
-                if saved.root.Parent == nil then return end
-                saved.root.CFrame = saved.cf
-                saved.root.Velocity = saved.vel
-                saved.root.RotVelocity = saved.rot
+        bodyToken = bodyToken + 1
+        local mine = bodyToken
+        if type(RunService.RenderStepped) == "table" or typeof(RunService.RenderStepped) == "RBXScriptSignal" then
+            task.spawn(function()
+                pcall(function()
+                    RunService.RenderStepped:Wait()
+                end)
+                restoreBody(mine)
             end)
+        end
+        task.delay(0.3, function()
+            restoreBody(mine)
         end)
+
+        if mode == "hybrid" then
+            pcall(setRepRoot, root, part)
+            STATS.spoofs = STATS.spoofs + 1
+            task.delay(hold, function()
+                pcall(function()
+                    if root.Parent ~= nil then
+                        setRepRoot(root, nil)
+                    end
+                end)
+            end)
+        end
         return standPos
     end
 
@@ -942,9 +974,9 @@ function API.unload()
         local r = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
         if r ~= nil then setRepRoot(r, nil) end
     end)
-    if spoofSaved ~= nil then
-        local saved = spoofSaved
-        spoofSaved = nil
+    if bodySaved ~= nil then
+        local saved = bodySaved
+        bodySaved = nil
         pcall(function()
             saved.root.CFrame = saved.cf
             saved.root.Velocity = saved.vel
