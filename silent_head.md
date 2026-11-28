@@ -72,3 +72,23 @@ SA ON | hook hookfunction | shots 12 | rew 9 | Enemy1 Head
 `mock/mock_v2_test.lua`（Lua 5.1 假装 Roblox）跑通：
 拦截（上值路径）→ 选人（跳过队友）→ 改包（`\0` 落在头 3 格内、`\1` = 头坐标、`\3` 是局部小偏移、`\2` = 头部件）
 → 非射击包不动 → 关开关不改 → 没目标不改并计数 → `unload()` 还原。
+
+## 七、v3：desync + 自己发（追 100%）
+
+v2 只改包、不等位置同步，所以服务端按「它看到的你」算射线时经常不认 → 命中率上不去。
+v3 照 `rage.lua` 的做法补两步：
+
+1. **desync**：开火瞬间把 `HumanoidRootPart` 挪到目标旁边（3~5 格），服务端随后收到的
+   复制位置就是「你贴着他」，起点/距离/墙挡校验都能过；`desyncHold` 后还原，视角不动。
+2. **selfFire**：拦下游戏自己那发，`selfFireDelay`（默认 40ms，约 2 帧）后由我们用原始
+   `FireServer` 重发同一个包 —— 位置更新先到、弹道后到，消掉那个 race。
+
+| `desync` | `selfFire` | 行为 |
+|---|---|---|
+| true | true | 默认。贴身 + 等两帧再发 |
+| true | false | 贴身但立即发（还有 race，但比 v2 强） |
+| false | false | 等于 v2（纯改包） |
+
+状态条：`shots / rew / ds / sf` 四个计数 —— `ds` 是挪了几次身体，`sf` 是自己发了几发。
+若出现「一发都不中」：先 `cfg.desync=false; cfg.selfFire=false` 退回 v2 行为，
+把状态条和 Console 发我；`desyncMaxDist`（默认 60）之外不会挪身体，属于预期。

@@ -52,11 +52,24 @@ local CFG = {
     lead = 0.06,           -- 提前量系数（×目标速度），0 = 不预判
     originJitter = 2,      -- 起点在目标头周围随机偏移（格），0 = 正好在头上
     hitJitter = 0.1,       -- 命中点的抖动（格），照开源实现
+    desync = true,         -- 开火时把身体挪到目标旁边一瞬（rage.lua 那套），服务端就认起点
+    desyncRadius = 5,      -- 挪过去的半径（格）
+    desyncHold = 0.05,     -- 挪过去停多久再还原（秒）
+    desyncMaxDist = 60,    -- 超过这个距离不挪（rage.lua 实测 60 内才有效）
+    selfFire = true,       -- 拦下游戏那发，等位置同步后由我们重发（消掉 race，命中率高很多）
+    selfFireDelay = 0.04,  -- 重发前等多久（秒）
+    aimPart = "auto",      -- auto = 优先 HitboxHead，其次 Head；也可写 "Head"
     hud = true,
     debug = false,
 }
 
-local STATS = { shots = 0, rewrites = 0, noTarget = 0, hook = "none" }
+local STATS = { shots = 0, rewrites = 0, noTarget = 0, desyncs = 0, selfFired = 0, hook = "none" }
+
+local unpackFn = table.unpack or unpack
+
+local function packArgs(...)
+    return { n = select("#", ...), ... }
+end
 
 local function log(fmt, ...)
     if CFG.debug then
@@ -231,13 +244,18 @@ local function refreshCache(p)
         cache[p] = nil
         return
     end
-    local head = ch:FindFirstChild(CFG.part or "Head")
-    if head == nil or not head:IsA("BasePart") then
-        head = ch:FindFirstChild("HitboxHead") or ch:FindFirstChild("HitboxHeadSmall")
+    local hitbox = ch:FindFirstChild("HitboxHead") or ch:FindFirstChild("HitboxHeadSmall")
+    if hitbox ~= nil and not hitbox:IsA("BasePart") then
+        hitbox = nil
+    end
+    local head = ch:FindFirstChild("Head")
+    if head ~= nil and not head:IsA("BasePart") then
+        head = nil
     end
     cache[p] = {
         char = ch,
-        head = head,
+        head = head or hitbox,   -- 兜底：没有视觉 Head 就用命中盒
+        hitbox = hitbox,
         root = ch:FindFirstChild("HumanoidRootPart"),
         hum = ch:FindFirstChildOfClass("Humanoid"),
     }
@@ -348,7 +366,82 @@ local function jitter(range)
     return (math.random() * 2 - 1) * range
 end
 
-local function rewriteShot(args, target)
+--[[
+  开火前把身体挪到目标旁边（rage.lua 的 desync）
+  服务端是按你"复制过去的身体位置"算射线的：身体贴着目标，起点就合法，
+  距离/墙挡校验都能过。发完 50ms 还原，客户端视角不动。
+]]
+local desyncSaved = nil
+local desyncToken = 0
+
+local function desyncTo(part, holdSeconds)
+    if not CFG.desync then
+        return nil
+    end
+    local char = LP.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root == nil then
+        return nil
+    end
+    local standPos
+    local ok, err = pcall(function()
+        if desyncSaved == nil then
+            desyncSaved = {
+                root = root,
+                cf = root.CFrame,
+                vel = root.Velocity,
+                rot = root.RotVelocity,
+            }
+        end
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(30, math.max(31, CFG.desyncRadius * 10)) / 10
+        standPos = part.Position + Vector3.new(math.cos(angle) * radius, math.random(0, 20) / 10, math.sin(angle) * radius)
+        root.CFrame = CFrame.lookAt(standPos, part.Position)
+    end)
+    if not ok then
+        log("desync 失败: %s", tostring(err))
+        return nil
+    end
+
+    STATS.desyncs = STATS.desyncs + 1
+    desyncToken = desyncToken + 1
+    local mine = desyncToken
+    task.delay(holdSeconds or CFG.desyncHold, function()
+        if mine ~= desyncToken then
+            return
+        end
+        local saved = desyncSaved
+        desyncSaved = nil
+        if saved == nil then
+            return
+        end
+        pcall(function()
+            if saved.root.Parent == nil then
+                return
+            end
+            saved.root.CFrame = saved.cf
+            saved.root.Velocity = saved.vel
+            saved.root.RotVelocity = saved.rot
+        end)
+    end)
+
+    return standPos
+end
+
+local function aimPartOf(target)
+    if target == nil then
+        return nil
+    end
+    if CFG.aimPart ~= "auto" and target.char then
+        local p = target.char:FindFirstChild(CFG.aimPart)
+        if p and p:IsA("BasePart") then
+            return p
+        end
+    end
+    return target.hitbox or target.head
+end
+
+local function rewriteShot(args, target, holdSeconds)
     if type(args) ~= "table" then
         return false
     end
@@ -356,7 +449,7 @@ local function rewriteShot(args, target)
     if type(shot) ~= "table" then
         return false
     end
-    local head = target and target.head
+    local head = aimPartOf(target)
     if head == nil or head.Parent == nil then
         return false
     end
@@ -365,17 +458,25 @@ local function rewriteShot(args, target)
     end
 
     local pos = head.Position
-    local j = CFG.originJitter
-    local origin = pos + Vector3.new(jitter(j), math.random() * j, jitter(j))
+    local origin
+    -- 60 格内先 desync（把身体挪过去，服务端才认这个起点），再退化成"包里写目标旁边"
+    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if myRoot ~= nil and (myRoot.Position - pos).Magnitude <= CFG.desyncMaxDist then
+        origin = desyncTo(head, holdSeconds)
+    end
+    if origin == nil then
+        local j = CFG.originJitter
+        origin = pos + Vector3.new(jitter(j), math.random() * j, jitter(j))
+    end
     local aimCF = CFrame.lookAt(origin, pos)
 
     -- 提前量：按目标当前速度预判，打移动靶更稳（开源 ragebot 版有这步）
     local lead = Vector3.zero
     if CFG.lead > 0 and target.root ~= nil then
-        local ok, v = pcall(function()
+        local okV, v = pcall(function()
             return target.root.AssemblyLinearVelocity
         end)
-        if ok and typeof(v) == "Vector3" then
+        if okV and typeof(v) == "Vector3" then
             lead = v * CFG.lead
             if lead.Magnitude > 25 then
                 lead = lead.Unit * 25
@@ -392,13 +493,41 @@ local function rewriteShot(args, target)
         return false
     end
 
-    shot["\0"] = encodeCFrame(aimCF)     -- 起点：目标头旁边，看向头
-    shot["\1"] = encodeCFrame(head.CFrame) -- 目标的 CFrame（不是 lookAt）
-    shot["\2"] = head                      -- 目标部件
-    shot["\3"] = encodeCFrame(objSpace)    -- 头局部空间里的命中点
+    shot["\0"] = encodeCFrame(aimCF)       -- 起点：贴着目标（desync 后的身体位置）
+    shot["\1"] = encodeCFrame(head.CFrame)  -- 目标的 CFrame（不是 lookAt）
+    shot["\2"] = head                       -- 目标部件
+    shot["\3"] = encodeCFrame(objSpace)     -- 头局部空间里的命中点
 
     STATS.rewrites = STATS.rewrites + 1
     return true
+end
+
+--[[
+  一次开火的总入口（三条拦截路径共用）
+  selfFire 模式：拦下游戏自己那发 → 先 desync → 等 2 帧让位置同步到服务端 → 我们代替它发
+  （rage.lua 里也是自己 FireServer，只是因为不能中途等，所以它带 race；这里等一帧就没 race 了）
+]]
+local function dispatch(objectId, action, data, deliver)
+    if CFG.enabled and type(data) == "table" and currentTarget ~= nil then
+        STATS.shots = STATS.shots + 1
+        local hold = CFG.selfFire and (CFG.selfFireDelay + 0.06) or 0.05
+        local ok, built = pcall(rewriteShot, data, currentTarget, hold)
+        if ok and built and CFG.selfFire and type(task.delay) == "function" then
+            -- 拦下游戏自己那发，等位置同步过去再由我们发；deliver 是原始函数，不会再进钩子
+            STATS.selfFired = STATS.selfFired + 1
+            local delay = CFG.selfFireDelay
+            task.delay(delay, function()
+                pcall(deliver)
+            end)
+            return
+        end
+        if ok and built then
+            return deliver()
+        end
+    elseif CFG.enabled then
+        STATS.noTarget = STATS.noTarget + 1
+    end
+    return deliver()
 end
 
 --==========================================================================
@@ -420,18 +549,14 @@ local function installHookFunction()
     local old
     local ok2 = pcall(function()
         old = hookfunction(fn, function(self, objectId, action, data, ...)
-            if CFG.enabled and self == useItem and type(data) == "table" then
-                STATS.shots = STATS.shots + 1
-                if currentTarget ~= nil then
-                    local ok3 = pcall(rewriteShot, data, currentTarget)
-                    if not ok3 then
-                        STATS.noTarget = STATS.noTarget + 1
-                    end
-                else
-                    STATS.noTarget = STATS.noTarget + 1
-                end
+            local trailing = packArgs(...)
+            local function forward()
+                return old(self, objectId, action, data, unpackFn(trailing, 1, trailing.n))
             end
-            return old(self, objectId, action, data, ...)
+            if self ~= useItem then
+                return forward()
+            end
+            return dispatch(objectId, action, data, forward)
         end)
     end)
     if ok2 and type(old) == "function" then
@@ -458,14 +583,9 @@ local function installNamecall()
         local okName, method = pcall(getnamecallmethod)
         if okName and method == "FireServer" and self == useItem then
             local objectId, action, data = ...
-            if CFG.enabled and type(data) == "table" then
-                STATS.shots = STATS.shots + 1
-                if currentTarget ~= nil then
-                    pcall(rewriteShot, data, currentTarget)
-                else
-                    STATS.noTarget = STATS.noTarget + 1
-                end
-            end
+            return dispatch(objectId, action, data, function()
+                return namecallOld(self, objectId, action, data)
+            end)
         end
         return namecallOld(self, ...)
     end
@@ -541,15 +661,10 @@ local function lazyProxy(real, overrides)
 end
 
 local fireWrapper = function(_, objectId, action, data, ...)
-    if CFG.enabled and type(data) == "table" then
-        STATS.shots = STATS.shots + 1
-        if currentTarget ~= nil then
-            pcall(rewriteShot, data, currentTarget)
-        else
-            STATS.noTarget = STATS.noTarget + 1
-        end
-    end
-    return useItem:FireServer(objectId, action, data, ...)
+    local args = packArgs(...)
+    return dispatch(objectId, action, data, function()
+        return useItem:FireServer(objectId, action, data, unpackFn(args, 1, args.n))
+    end)
 end
 
 local function buildProxy(depth)
@@ -705,8 +820,9 @@ local function hudTick()
         end
         who = nm .. " " .. head.Name
     end
-    HUD.Text = string.format("SA %s | hook %s | shots %d | rew %d | %s",
-        CFG.enabled and "ON" or "OFF", tostring(installedBy), STATS.shots, STATS.rewrites, who)
+    HUD.Text = string.format("SA %s | %s | shots %d | rew %d | ds %d | sf %d | %s",
+        CFG.enabled and "ON" or "OFF", tostring(installedBy), STATS.shots, STATS.rewrites,
+        STATS.desyncs, STATS.selfFired, who)
 end
 
 if CFG.hud then
@@ -729,9 +845,9 @@ function API.setEnabled(v)
 end
 
 function API.status()
-    return string.format("[OREO-SA] %s | %s | shots=%d rew=%d noTarget=%d | %s",
+    return string.format("[OREO-SA] %s | %s | shots=%d rew=%d noTarget=%d desync=%d selfFire=%d | %s",
         tostring(installedBy), CFG.enabled and "ON" or "OFF",
-        STATS.shots, STATS.rewrites, STATS.noTarget,
+        STATS.shots, STATS.rewrites, STATS.noTarget, STATS.desyncs, STATS.selfFired,
         currentTarget and currentTarget.head and currentTarget.head.Name or "no target")
 end
 
@@ -755,6 +871,15 @@ function API.unload()
             if type(setreadonly) == "function" then setreadonly(mt, true) end
         end)
         namecallHook = nil
+    end
+    if desyncSaved ~= nil then
+        local saved = desyncSaved
+        desyncSaved = nil
+        pcall(function()
+            saved.root.CFrame = saved.cf
+            saved.root.Velocity = saved.vel
+            saved.root.RotVelocity = saved.rot
+        end)
     end
     for _, e in ipairs(restoreList) do
         pcall(function() e.t[e.k] = e.old end)
