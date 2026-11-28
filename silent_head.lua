@@ -45,8 +45,8 @@ local CFG = {
     chance = 100,          -- 100 = 每一发都改
     part = "Head",         -- 开源实现打的是 Head；缺了才退 HitboxHead / HitboxHeadSmall
     fovEnabled = true,
-    fovRadius = 300,       -- 屏幕像素半径（准心为中心）：越大锁得越宽
-    maxDist = 300,         -- 和目标的最大距离（格）：超过就不锁
+    fovRadius = math.huge, -- 屏幕像素半径（准心为中心）：无限 = 屏幕上谁离准心近就锁谁
+    maxDist = math.huge,   -- 和目标的最大距离（格）：无限 = 地图另一头也锁
     visibleOnly = false,   -- 起点就在目标旁边，隔墙也能过；想只打看得见的就改 true
     teamCheck = true,
     lead = 0.04,           -- 提前量系数（×目标速度），0 = 不预判
